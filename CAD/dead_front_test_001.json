@@ -1,0 +1,29 @@
+{
+    "fileFormatVersion": "1",
+    "parameterSets": {
+        "New set 1": {
+            "CABLE_HEIGHT": "8",
+            "CABLE_WIDTH": "14",
+            "CUTOUT_SHAPE": "circular",
+            "FACE_DEPTH": "58",
+            "FACE_THICKNESS": "14",
+            "FACE_WIDTH": "58",
+            "MODULE_THICKNESS": "13",
+            "SHOW_MODULE": "false",
+            "WINDOW_THICKNESS": "1"
+        },
+        "New set 2": {
+            "CABLE_HEIGHT": "8",
+            "CABLE_WIDTH": "14",
+            "CUTOUT_SHAPE": "circular",
+            "FACE_DEPTH": "58",
+            "FACE_THICKNESS": "14",
+            "FACE_WIDTH": "58",
+            "FIT_CLEARANCE": "1",
+            "MODULE_DIAMETER": "49",
+            "MODULE_THICKNESS": "13",
+            "SHOW_MODULE": "false",
+            "WINDOW_THICKNESS": "0.59999999999999998"
+        }
+    }
+}

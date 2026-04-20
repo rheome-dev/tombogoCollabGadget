@@ -1,0 +1,477 @@
+{
+	"name": "MorphingResonator",
+	"filename": "resonatorTest2.dsp",
+	"version": "2.85.5",
+	"compile_options": "-lang cpp -i -fpga-mem-th 4 -ct 1 -cn dsp-module -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 0",
+	"library_list": ["/opt/homebrew/Cellar/faust/2.85.5/share/faust/stdfaust.lib","/opt/homebrew/Cellar/faust/2.85.5/share/faust/noises.lib","/opt/homebrew/Cellar/faust/2.85.5/share/faust/envelopes.lib","/opt/homebrew/Cellar/faust/2.85.5/share/faust/maths.lib","/opt/homebrew/Cellar/faust/2.85.5/share/faust/platform.lib","/opt/homebrew/Cellar/faust/2.85.5/share/faust/signals.lib","/opt/homebrew/Cellar/faust/2.85.5/share/faust/basics.lib","/opt/homebrew/Cellar/faust/2.85.5/share/faust/physmodels.lib","/opt/homebrew/Cellar/faust/2.85.5/share/faust/filters.lib","/opt/homebrew/Cellar/faust/2.85.5/share/faust/demos.lib","/opt/homebrew/Cellar/faust/2.85.5/share/faust/reverbs.lib","/opt/homebrew/Cellar/faust/2.85.5/share/faust/delays.lib","/opt/homebrew/Cellar/faust/2.85.5/share/faust/routes.lib"],
+	"include_pathnames": ["/opt/homebrew/Cellar/faust/2.85.5/share/faust","/usr/local/share/faust","/usr/share/faust","/Users/jasperhall/Desktop/tombogoCollabGadget/firmware/faust","/Users/jasperhall/Desktop/tombogoCollabGadget/firmware/faust"],
+	"size": 960904,
+	"inputs": 2,
+	"outputs": 2,
+	"meta": [ 
+		{ "author": "Tombogo x Rheome" },
+		{ "basics.lib/name": "Faust Basic Element Library" },
+		{ "basics.lib/version": "1.22.0" },
+		{ "compile_options": "-lang cpp -i -fpga-mem-th 4 -ct 1 -cn dsp-module -es 1 -mcd 16 -mdd 1024 -mdy 33 -single -ftz 0" },
+		{ "delays.lib/name": "Faust Delay Library" },
+		{ "delays.lib/version": "1.2.0" },
+		{ "demos.lib/name": "Faust Demos Library" },
+		{ "demos.lib/version": "1.4.0" },
+		{ "demos.lib/zita_rev1:author": "Julius O. Smith III" },
+		{ "demos.lib/zita_rev1:licence": "MIT" },
+		{ "envelopes.lib/ar:author": "Yann Orlarey, Stéphane Letz" },
+		{ "envelopes.lib/author": "GRAME" },
+		{ "envelopes.lib/copyright": "GRAME" },
+		{ "envelopes.lib/license": "LGPL with exception" },
+		{ "envelopes.lib/name": "Faust Envelope Library" },
+		{ "envelopes.lib/version": "1.3.0" },
+		{ "filename": "resonatorTest2.dsp" },
+		{ "filters.lib/allpass_comb:author": "Julius O. Smith III" },
+		{ "filters.lib/allpass_comb:copyright": "Copyright (C) 2003-2019 by Julius O. Smith III <jos@ccrma.stanford.edu>" },
+		{ "filters.lib/allpass_comb:license": "MIT-style STK-4.3 license" },
+		{ "filters.lib/fir:author": "Julius O. Smith III" },
+		{ "filters.lib/fir:copyright": "Copyright (C) 2003-2019 by Julius O. Smith III <jos@ccrma.stanford.edu>" },
+		{ "filters.lib/fir:license": "MIT-style STK-4.3 license" },
+		{ "filters.lib/iir:author": "Julius O. Smith III" },
+		{ "filters.lib/iir:copyright": "Copyright (C) 2003-2019 by Julius O. Smith III <jos@ccrma.stanford.edu>" },
+		{ "filters.lib/iir:license": "MIT-style STK-4.3 license" },
+		{ "filters.lib/lowpass0_highpass1": "MIT-style STK-4.3 license" },
+		{ "filters.lib/lowpass0_highpass1:author": "Julius O. Smith III" },
+		{ "filters.lib/lowpass:author": "Julius O. Smith III" },
+		{ "filters.lib/lowpass:copyright": "Copyright (C) 2003-2019 by Julius O. Smith III <jos@ccrma.stanford.edu>" },
+		{ "filters.lib/lowpass:license": "MIT-style STK-4.3 license" },
+		{ "filters.lib/name": "Faust Filters Library" },
+		{ "filters.lib/peak_eq_rm:author": "Julius O. Smith III" },
+		{ "filters.lib/peak_eq_rm:copyright": "Copyright (C) 2003-2019 by Julius O. Smith III <jos@ccrma.stanford.edu>" },
+		{ "filters.lib/peak_eq_rm:license": "MIT-style STK-4.3 license" },
+		{ "filters.lib/tf1:author": "Julius O. Smith III" },
+		{ "filters.lib/tf1:copyright": "Copyright (C) 2003-2019 by Julius O. Smith III <jos@ccrma.stanford.edu>" },
+		{ "filters.lib/tf1:license": "MIT-style STK-4.3 license" },
+		{ "filters.lib/tf1s:author": "Julius O. Smith III" },
+		{ "filters.lib/tf1s:copyright": "Copyright (C) 2003-2019 by Julius O. Smith III <jos@ccrma.stanford.edu>" },
+		{ "filters.lib/tf1s:license": "MIT-style STK-4.3 license" },
+		{ "filters.lib/tf2:author": "Julius O. Smith III" },
+		{ "filters.lib/tf2:copyright": "Copyright (C) 2003-2019 by Julius O. Smith III <jos@ccrma.stanford.edu>" },
+		{ "filters.lib/tf2:license": "MIT-style STK-4.3 license" },
+		{ "filters.lib/version": "1.7.1" },
+		{ "maths.lib/author": "GRAME" },
+		{ "maths.lib/copyright": "GRAME" },
+		{ "maths.lib/license": "LGPL with exception" },
+		{ "maths.lib/name": "Faust Math Library" },
+		{ "maths.lib/version": "2.9.0" },
+		{ "name": "MorphingResonator" },
+		{ "noises.lib/name": "Faust Noise Generator Library" },
+		{ "noises.lib/version": "1.5.0" },
+		{ "physmodels.lib/name": "Faust Physical Models Library" },
+		{ "physmodels.lib/version": "1.2.0" },
+		{ "platform.lib/name": "Generic Platform Library" },
+		{ "platform.lib/version": "1.3.0" },
+		{ "reverbs.lib/name": "Faust Reverb Library" },
+		{ "reverbs.lib/version": "1.5.1" },
+		{ "routes.lib/hadamard:author": "Remy Muller, revised by Romain Michon" },
+		{ "routes.lib/name": "Faust Signal Routing Library" },
+		{ "routes.lib/version": "1.3.0" },
+		{ "signals.lib/name": "Faust Routing Library" },
+		{ "signals.lib/version": "1.6.0" },
+		{ "version": "4.5" }
+	],
+	"ui": [ 
+		{
+			"type": "vgroup",
+			"label": "MorphingResonator",
+			"items": [ 
+				{
+					"type": "checkbox",
+					"label": "1. Use Mic Input",
+					"varname": "fCheckbox0",
+					"shortname": "1_Use_Mic_Input",
+					"address": "/MorphingResonator/1._Use_Mic_Input"
+				},
+				{
+					"type": "hslider",
+					"label": "10. Resonator Trim",
+					"varname": "fHslider2",
+					"shortname": "10_Resonator_Trim",
+					"address": "/MorphingResonator/10._Resonator_Trim",
+					"init": 0.4,
+					"min": 0,
+					"max": 2,
+					"step": 0.01
+				},
+				{
+					"type": "hslider",
+					"label": "11. Dry/Wet Mix",
+					"varname": "fHslider1",
+					"shortname": "11_Dry_Wet_Mix",
+					"address": "/MorphingResonator/11._Dry_Wet_Mix",
+					"init": 1,
+					"min": 0,
+					"max": 1,
+					"step": 0.01
+				},
+				{
+					"type": "hslider",
+					"label": "12. Output Gain",
+					"varname": "fHslider0",
+					"shortname": "12_Output_Gain",
+					"address": "/MorphingResonator/12._Output_Gain",
+					"init": 1,
+					"min": 0,
+					"max": 4,
+					"step": 0.01
+				},
+				{
+					"type": "nentry",
+					"label": "13. Voicing Index",
+					"varname": "fEntry0",
+					"shortname": "13_Voicing_Index",
+					"address": "/MorphingResonator/13._Voicing_Index",
+					"init": 0,
+					"min": 0,
+					"max": 4,
+					"step": 1
+				},
+				{
+					"type": "button",
+					"label": "2. Pluck (If Mic Off)",
+					"varname": "fButton0",
+					"shortname": "2_Pluck_If_Mic_Off",
+					"address": "/MorphingResonator/2._Pluck__If_Mic_Off_"
+				},
+				{
+					"type": "hslider",
+					"label": "3. Root Note (MIDI)",
+					"varname": "fHslider7",
+					"shortname": "3_Root_Note_MIDI",
+					"address": "/MorphingResonator/3._Root_Note__MIDI_",
+					"meta": [
+						{ "36=C2": "" }
+					],
+					"init": 36,
+					"min": 24,
+					"max": 72,
+					"step": 1
+				},
+				{
+					"type": "nentry",
+					"label": "4. Chord Grid",
+					"varname": "fEntry1",
+					"shortname": "4_Chord_Grid",
+					"address": "/MorphingResonator/4._Chord_Grid",
+					"meta": [
+						{ "style": "radio{'i (min)':0; 'ii° (dim)':1; 'III (Maj)':2; 'iv (min)':3; 'v (min)':4; 'VI (Maj)':5; 'VII (Maj)':6; 'V7 (Dom)':7; 'i (m9)':8; 'iv (m9)':9; 'v (m9)':10; 'VI (M9)':11; 'III (M9)':12; 'VII (dom9)':13; 'i (m11)':14; 'i (sus4)':15}" }
+					],
+					"init": 0,
+					"min": 0,
+					"max": 15,
+					"step": 1
+				},
+				{
+					"type": "hslider",
+					"label": "5. Chord Glide (s)",
+					"varname": "fHslider8",
+					"shortname": "5_Chord_Glide_s",
+					"address": "/MorphingResonator/5._Chord_Glide__s_",
+					"init": 0.5,
+					"min": 0.001,
+					"max": 10,
+					"step": 0.01
+				},
+				{
+					"type": "hslider",
+					"label": "6. Timbre Morph",
+					"varname": "fHslider3",
+					"shortname": "6_Timbre_Morph",
+					"address": "/MorphingResonator/6._Timbre_Morph",
+					"meta": [
+						{ "0": "Harm, 1:Inharm, 2:Metal, 3:Spectral Mask" }
+					],
+					"init": 0,
+					"min": 0,
+					"max": 3,
+					"step": 0.01
+				},
+				{
+					"type": "hslider",
+					"label": "7. Decay Time (s)",
+					"varname": "fHslider6",
+					"shortname": "7_Decay_Time_s",
+					"address": "/MorphingResonator/7._Decay_Time__s_",
+					"init": 2,
+					"min": 0.1,
+					"max": 15,
+					"step": 0.01
+				},
+				{
+					"type": "hslider",
+					"label": "8. Harmonic Drive",
+					"varname": "fHslider5",
+					"shortname": "8_Harmonic_Drive",
+					"address": "/MorphingResonator/8._Harmonic_Drive",
+					"init": 2,
+					"min": 1,
+					"max": 10,
+					"step": 0.1
+				},
+				{
+					"type": "hslider",
+					"label": "9. Input Trim",
+					"varname": "fHslider4",
+					"shortname": "9_Input_Trim",
+					"address": "/MorphingResonator/9._Input_Trim",
+					"init": 0.25,
+					"min": 0,
+					"max": 1,
+					"step": 0.01
+				},
+				{
+					"type": "hgroup",
+					"label": "Zita_Rev1",
+					"meta": [
+						{ "0": "" },
+						{ "tooltip": "~ ZITA REV1 FEEDBACK DELAY NETWORK (FDN) & SCHROEDER     ALLPASS-COMB REVERBERATOR (8x8). See Faust's reverbs.lib for documentation and     references" }
+					],
+					"items": [ 
+						{
+							"type": "hgroup",
+							"label": "Input",
+							"meta": [
+								{ "1": "" }
+							],
+							"items": [ 
+								{
+									"type": "vslider",
+									"label": "In Delay",
+									"varname": "fVslider10",
+									"shortname": "In_Delay",
+									"address": "/MorphingResonator/Zita_Rev1/Input/In_Delay",
+									"meta": [
+										{ "1": "" },
+										{ "style": "knob" },
+										{ "tooltip": "Delay in ms         before reverberation begins" },
+										{ "unit": "ms" }
+									],
+									"init": 60,
+									"min": 20,
+									"max": 100,
+									"step": 1
+								}
+							]
+						},
+						{
+							"type": "hgroup",
+							"label": "Decay Times in Bands (see tooltips)",
+							"meta": [
+								{ "2": "" }
+							],
+							"items": [ 
+								{
+									"type": "vslider",
+									"label": "LF X",
+									"varname": "fVslider9",
+									"shortname": "LF_X",
+									"address": "/MorphingResonator/Zita_Rev1/Decay_Times_in_Bands__see_tooltips_/LF_X",
+									"meta": [
+										{ "1": "" },
+										{ "scale": "log" },
+										{ "style": "knob" },
+										{ "tooltip": "Crossover frequency (Hz) separating low and middle frequencies" },
+										{ "unit": "Hz" }
+									],
+									"init": 200,
+									"min": 50,
+									"max": 1000,
+									"step": 1
+								},
+								{
+									"type": "vslider",
+									"label": "Low RT60",
+									"varname": "fVslider8",
+									"shortname": "Low_RT60",
+									"address": "/MorphingResonator/Zita_Rev1/Decay_Times_in_Bands__see_tooltips_/Low_RT60",
+									"meta": [
+										{ "2": "" },
+										{ "scale": "log" },
+										{ "style": "knob" },
+										{ "tooltip": "T60 = time (in seconds) to decay 60dB in low-frequency band" },
+										{ "unit": "s" }
+									],
+									"init": 3,
+									"min": 1,
+									"max": 8,
+									"step": 0.1
+								},
+								{
+									"type": "vslider",
+									"label": "Mid RT60",
+									"varname": "fVslider6",
+									"shortname": "Mid_RT60",
+									"address": "/MorphingResonator/Zita_Rev1/Decay_Times_in_Bands__see_tooltips_/Mid_RT60",
+									"meta": [
+										{ "3": "" },
+										{ "scale": "log" },
+										{ "style": "knob" },
+										{ "tooltip": "T60 = time (in seconds) to decay 60dB in middle band" },
+										{ "unit": "s" }
+									],
+									"init": 2,
+									"min": 1,
+									"max": 8,
+									"step": 0.1
+								},
+								{
+									"type": "vslider",
+									"label": "HF Damping",
+									"varname": "fVslider7",
+									"shortname": "HF_Damping",
+									"address": "/MorphingResonator/Zita_Rev1/Decay_Times_in_Bands__see_tooltips_/HF_Damping",
+									"meta": [
+										{ "4": "" },
+										{ "scale": "log" },
+										{ "style": "knob" },
+										{ "tooltip": "Frequency (Hz) at which the high-frequency T60 is half the middle-band's T60" },
+										{ "unit": "Hz" }
+									],
+									"init": 6000,
+									"min": 1500,
+									"max": 23520,
+									"step": 1
+								}
+							]
+						},
+						{
+							"type": "hgroup",
+							"label": "RM Peaking Equalizer 1",
+							"meta": [
+								{ "3": "" }
+							],
+							"items": [ 
+								{
+									"type": "vslider",
+									"label": "Eq1 Freq",
+									"varname": "fVslider4",
+									"shortname": "Eq1_Freq",
+									"address": "/MorphingResonator/Zita_Rev1/RM_Peaking_Equalizer_1/Eq1_Freq",
+									"meta": [
+										{ "1": "" },
+										{ "scale": "log" },
+										{ "style": "knob" },
+										{ "tooltip": "Center-frequency of second-order Regalia-Mitra peaking equalizer section 1" },
+										{ "unit": "Hz" }
+									],
+									"init": 315,
+									"min": 40,
+									"max": 2500,
+									"step": 1
+								},
+								{
+									"type": "vslider",
+									"label": "Eq1 Level",
+									"varname": "fVslider5",
+									"shortname": "Eq1_Level",
+									"address": "/MorphingResonator/Zita_Rev1/RM_Peaking_Equalizer_1/Eq1_Level",
+									"meta": [
+										{ "2": "" },
+										{ "style": "knob" },
+										{ "tooltip": "Peak level         in dB of second-order Regalia-Mitra peaking equalizer section 1" },
+										{ "unit": "dB" }
+									],
+									"init": 0,
+									"min": -15,
+									"max": 15,
+									"step": 0.1
+								}
+							]
+						},
+						{
+							"type": "hgroup",
+							"label": "RM Peaking Equalizer 2",
+							"meta": [
+								{ "4": "" }
+							],
+							"items": [ 
+								{
+									"type": "vslider",
+									"label": "Eq2 Freq",
+									"varname": "fVslider2",
+									"shortname": "Eq2_Freq",
+									"address": "/MorphingResonator/Zita_Rev1/RM_Peaking_Equalizer_2/Eq2_Freq",
+									"meta": [
+										{ "1": "" },
+										{ "scale": "log" },
+										{ "style": "knob" },
+										{ "tooltip": "Center-frequency of second-order Regalia-Mitra peaking equalizer section 2" },
+										{ "unit": "Hz" }
+									],
+									"init": 1500,
+									"min": 160,
+									"max": 10000,
+									"step": 1
+								},
+								{
+									"type": "vslider",
+									"label": "Eq2 Level",
+									"varname": "fVslider3",
+									"shortname": "Eq2_Level",
+									"address": "/MorphingResonator/Zita_Rev1/RM_Peaking_Equalizer_2/Eq2_Level",
+									"meta": [
+										{ "2": "" },
+										{ "style": "knob" },
+										{ "tooltip": "Peak level         in dB of second-order Regalia-Mitra peaking equalizer section 2" },
+										{ "unit": "dB" }
+									],
+									"init": 0,
+									"min": -15,
+									"max": 15,
+									"step": 0.1
+								}
+							]
+						},
+						{
+							"type": "hgroup",
+							"label": "Output",
+							"meta": [
+								{ "5": "" }
+							],
+							"items": [ 
+								{
+									"type": "vslider",
+									"label": "Wet/Dry Mix",
+									"varname": "fVslider1",
+									"shortname": "Wet_Dry_Mix",
+									"address": "/MorphingResonator/Zita_Rev1/Output/Wet_Dry_Mix",
+									"meta": [
+										{ "1": "" },
+										{ "style": "knob" },
+										{ "tooltip": "Ratio of dry and wet signal. -1 = fully wet, +1 = fully dry" }
+									],
+									"init": 0,
+									"min": -1,
+									"max": 1,
+									"step": 0.01
+								},
+								{
+									"type": "vslider",
+									"label": "Level",
+									"varname": "fVslider0",
+									"shortname": "Level",
+									"address": "/MorphingResonator/Zita_Rev1/Output/Level",
+									"meta": [
+										{ "2": "" },
+										{ "style": "knob" },
+										{ "tooltip": "Output scale         factor" },
+										{ "unit": "dB" }
+									],
+									"init": -20,
+									"min": -70,
+									"max": 40,
+									"step": 0.1
+								}
+							]
+						}
+					]
+				}
+			]
+		}
+	]
+}
