@@ -530,3 +530,96 @@ Before powering on, verify:
 ---
 
 This document provides everything needed to wire and configure your system. The ESP32-S3 handles audio playback via I2S to the WM8960 headphone output, while all user inputs are read through the MCP23017 I2C I/O expander without consuming additional ESP32 GPIO pins.
+
+---
+
+## Test Plan Phases
+
+### Phase 1: WM8960 Minimal Audio Test ✅ IMPLEMENTED
+
+**Goal:** Get audio signal out of the WM8960 headphone jack.
+
+**Status:** IMPLEMENTED - committed to repository
+
+**Approach:** Standalone test sketch (does not interfere with main.cpp). Single test file that initializes everything and plays a tone.
+
+**Files created:**
+- `firmware/wm8960_test.cpp` — standalone test sketch
+- `firmware/platforms/esp32/wm8960.h` — WM8960 register definitions and interface
+- `firmware/platforms/esp32/wm8960.cpp` — WM8960 I2C init and configuration
+
+**Files modified:**
+- `platformio.ini` — added `adafruit/Adafruit MCP23X17@^2.1.0` library (for Phase 2)
+
+**Test sequence:**
+1. Initialize I2C on GPIO15 (SDA) / GPIO14 (SCL) at 400kHz
+2. Initialize I2S1 (GPIO16=WS, GPIO17=BCLK, GPIO18=DOUT) at 44.1kHz, 16-bit stereo, I2S master
+3. Initialize WM8960 via I2C:
+   - Software reset
+   - Power management (VMID, DAC channels, output mixers)
+   - PLL configuration (derive internal clocks from BCLK — slave mode)
+   - DAC volume at 0dB, unmute
+   - Headphone volume at 0dB
+4. Generate 1kHz sine wave buffer → I2S write → WM8960 DAC → headphones
+5. Verify with headphones or oscilloscope
+
+**MCP23017 address:** 0x20 (A0/A1/A2→GND). No conflict with TCA9554 (0x18).
+
+**Clock mode:** WM8960 as I2S slave (ESP32 generates BCLK and WS). Simpler wiring — only DIN/BCLK/WS needed, no MCLK from ESP32.
+
+**Debugging order if no audio:**
+1. I2C ACK — verify WM8960 responds at 0x1A
+2. I2S BCLK/WS — confirm clock signals present on GPIO17/GPIO16
+3. WM8960 register readback — confirm registers written correctly
+4. DAC output — scope on headphone jack pads if available
+
+---
+
+### Phase 2: MCP23017 Input Test
+
+**Goal:** Verify all physical controls (joystick, buttons, encoder) are correctly read through MCP23017.
+
+**Approach:** After Phase 1 success, add MCP23017 init to the test sketch. Poll all pins and print values to serial.
+
+**Pin mapping (confirmed from doc):**
+| Pin | Function |
+|:---|:---|
+| GPA0 | Joystick Up |
+| GPA1 | Joystick Down |
+| GPA2 | Joystick Left |
+| GPA3 | Joystick Right |
+| GPA4 | Joystick Center |
+| GPA5 | Push Button 1 |
+| GPA6 | Push Button 2 |
+| GPA7 | Push Button 3 |
+| GPB0 | Encoder Phase A |
+| GPB1 | Encoder Phase B |
+| GPB2 | Encoder Switch |
+| GPB3–GPB7 | Spare |
+
+**Test sequence:**
+1. Init MCP23017 at 0x20 with all pins as INPUT_PULLUP
+2. Read all 16 pins, print to serial every 100ms
+3. Manually press each control and verify correct pin goes low
+4. Test encoder rotation — verify GPB0/GPB1 state transitions
+5. Confirm no cross-talk between pins
+
+---
+
+### Phase 3: Full Integration Prep
+
+**Goal:** Confirm firmware architecture can support both ES8311 (speaker) and WM8960 (headphones) simultaneously, then merge MCP23017 into the full button HAL.
+
+**Audio:**
+- ES8311 via I2S0 (existing, GPIO8/9/10/42/45) at 16kHz
+- WM8960 via I2S1 (new, GPIO16/17/18) at 44.1kHz
+- Both run independently — routing decision in AudioEngine
+
+**Buttons:**
+- Replace PCF8574 code in `button_hal.cpp` with MCP23017 driver
+- Add MCP23017 address 0x20 (verify no TCA9554 conflict — 0x18 ≠ 0x20 ✓)
+- Confirm encoder reading logic (GPB0/GPB1 quadrature)
+
+**I2C:** Shared bus on GPIO15/14 — WM8960 (0x1A) and MCP23017 (0x20) coexist.
+
+**Deliverable:** Firmware builds cleanly with both audio codecs active and all controls routed through MCP23017.
