@@ -144,16 +144,20 @@ static bool es7210_config_clock(const es7210_config_t* config) {
 static bool es7210_config_i2s(const es7210_config_t* config) {
     uint8_t sdp1 = 0x00;
 
-    // Bit width
+    // Bit width — word length is in bits [7:5]
     switch (config->bits) {
         case ES7210_BITS_16:
-            sdp1 |= (0x03 << 2);  // 16-bit
+            sdp1 |= 0x60;  // bits[7:5] = 011 → 16-bit
             break;
         case ES7210_BITS_24:
-            sdp1 |= (0x00 << 2);  // 24-bit
+            sdp1 |= 0x00;  // bits[7:5] = 000 → 24-bit
             break;
         case ES7210_BITS_32:
-            sdp1 |= (0x01 << 2);  // 32-bit
+            sdp1 |= 0x80;  // bits[7:5] = 100 → 32-bit
+            break;
+        default:
+            Serial.printf("ES7210: WARNING — unknown bits value %d, forcing 16-bit\n", (int)config->bits);
+            sdp1 |= 0x60;
             break;
     }
 
@@ -174,17 +178,32 @@ static bool es7210_config_i2s(const es7210_config_t* config) {
             break;
     }
 
+    Serial.printf("ES7210: Writing SDP1 REG[0x11] = 0x%02X (bits=%d, fmt=%d)\n",
+                  sdp1, (int)config->bits, (int)config->i2s_format);
+
+    // Write and verify — this register is critical for data alignment
     es7210_write_reg(ES7210_SDP_INTERFACE1_REG11, sdp1);
+    delay(5);
+    uint8_t readback = es7210_read_reg(ES7210_SDP_INTERFACE1_REG11);
+    if (readback != sdp1) {
+        Serial.printf("ES7210: SDP1 write FAILED! Wrote 0x%02X, read back 0x%02X — retrying\n",
+                      sdp1, readback);
+        // Retry
+        es7210_write_reg(ES7210_SDP_INTERFACE1_REG11, sdp1);
+        delay(5);
+        readback = es7210_read_reg(ES7210_SDP_INTERFACE1_REG11);
+        Serial.printf("ES7210: SDP1 retry result: 0x%02X (expected 0x%02X)\n",
+                      readback, sdp1);
+    } else {
+        Serial.printf("ES7210: SDP1 verified OK: 0x%02X\n", readback);
+    }
 
     // TDM configuration
     uint8_t sdp2 = 0x00;
     if (config->enable_tdm) {
-        // TDM mode: all 4 channels on one I2S data line
-        // NFS (number of slots): 4 slots
         sdp2 |= 0x02;  // TDM enable with 4 slots
         Serial.println("ES7210: TDM mode enabled (4 channels)");
     } else {
-        // Standard mode: MIC1/MIC2 on SDOUT
         sdp2 = 0x00;
         Serial.println("ES7210: Standard I2S mode (2 channels)");
     }
@@ -262,45 +281,53 @@ bool ES7210_init(const es7210_config_t* config) {
     current_config = *config;
 
     // ========================================================================
-    // Software Reset Sequence (from ESP-BSP reference)
+    // 1) Software Reset
     // ========================================================================
-    es7210_write_reg(ES7210_RESET_REG00, 0xFF);  // Enter reset
-    delay(10);
-    es7210_write_reg(ES7210_RESET_REG00, 0x32);  // Exit reset, slave mode
-    delay(10);
+    es7210_write_reg(ES7210_RESET_REG00, 0xFF);  // Full reset
+    delay(20);
+    es7210_write_reg(ES7210_RESET_REG00, 0x41);  // Exit reset
+    delay(20);
 
     // ========================================================================
-    // Timing Configuration
+    // 2) Gate clocks initially (Espressif reference: 0x3F)
     // ========================================================================
-    es7210_write_reg(ES7210_TIME_CONTROL0_REG09, 0x30);  // Chip state timing
-    es7210_write_reg(ES7210_TIME_CONTROL1_REG0A, 0x30);  // Power up timing
+    es7210_write_reg(ES7210_CLOCK_OFF_REG01, 0x3F);
 
     // ========================================================================
-    // High-Pass Filter (DC blocking for microphones)
+    // 3) Timing Configuration
     // ========================================================================
-    es7210_write_reg(ES7210_ADC12_HPF2_REG23, 0x2A);  // ADC1/2 HPF
+    es7210_write_reg(ES7210_TIME_CONTROL0_REG09, 0x30);
+    es7210_write_reg(ES7210_TIME_CONTROL1_REG0A, 0x30);
+
+    // ========================================================================
+    // 4) High-Pass Filter (DC blocking for microphones)
+    // ========================================================================
+    es7210_write_reg(ES7210_ADC12_HPF2_REG23, 0x2A);
     es7210_write_reg(ES7210_ADC12_HPF1_REG22, 0x0A);
-    es7210_write_reg(ES7210_ADC34_HPF2_REG20, 0x2A);  // ADC3/4 HPF
-    es7210_write_reg(ES7210_ADC34_HPF1_REG21, 0x0A);
+    es7210_write_reg(ES7210_ADC34_HPF2_REG20, 0x0A);
+    es7210_write_reg(ES7210_ADC34_HPF1_REG21, 0x2A);
 
     // ========================================================================
-    // Analog Power Configuration
+    // 5) Mode Configuration (slave mode)
     // ========================================================================
-    es7210_write_reg(ES7210_ANALOG_REG40, 0xC3);  // Analog power on
+    es7210_write_reg(ES7210_MODE_CONFIG_REG08, 0x00);
 
     // ========================================================================
-    // Mode Configuration (slave mode, all channels)
+    // 6) Analog Power
     // ========================================================================
-    uint8_t mode_cfg = 0x00;  // Slave mode
-    // Enable data output based on mic selection
-    if (config->mics & ES7210_MIC1) mode_cfg |= 0x01;
-    if (config->mics & ES7210_MIC2) mode_cfg |= 0x02;
-    if (config->mics & ES7210_MIC3) mode_cfg |= 0x04;
-    if (config->mics & ES7210_MIC4) mode_cfg |= 0x08;
-    es7210_write_reg(ES7210_MODE_CONFIG_REG08, mode_cfg);
+    es7210_write_reg(ES7210_ANALOG_REG40, 0x43);
+    delay(10);
 
     // ========================================================================
-    // Clock Configuration
+    // 7) Microphone Bias + Power + Gain
+    // ========================================================================
+    if (!es7210_config_mics(config)) {
+        Serial.println("ES7210: Mic config failed");
+        return false;
+    }
+
+    // ========================================================================
+    // 8) Clock Configuration (MCLK, LRCK dividers, OSR)
     // ========================================================================
     if (!es7210_config_clock(config)) {
         Serial.println("ES7210: Clock config failed");
@@ -308,36 +335,32 @@ bool ES7210_init(const es7210_config_t* config) {
     }
 
     // ========================================================================
-    // I2S Interface Configuration
+    // 9) Start sequence — enable clocks, power on, start ADCs
+    // ========================================================================
+    es7210_write_reg(ES7210_CLOCK_OFF_REG01, 0x00);  // Un-gate all clocks
+    delay(10);
+    es7210_write_reg(ES7210_POWER_DOWN_REG06, 0x00);  // Power on
+    es7210_write_reg(ES7210_ANALOG_REG40, 0x43);      // Analog power (confirm)
+
+    // Enable ADC1/2/3/4
+    es7210_write_reg(ES7210_RESET_REG00, 0x71);
+    delay(10);
+    es7210_write_reg(ES7210_RESET_REG00, 0x41);
+    delay(10);
+
+    // ========================================================================
+    // 10) I2S Interface Configuration — AFTER ADCs are running
     // ========================================================================
     if (!es7210_config_i2s(config)) {
         Serial.println("ES7210: I2S config failed");
         return false;
     }
 
-    // ========================================================================
-    // Microphone Configuration
-    // ========================================================================
-    if (!es7210_config_mics(config)) {
-        Serial.println("ES7210: Mic config failed");
-        return false;
-    }
-
-    // DLL power state is already set by es7210_config_clock() based on coefficients
-
-    // ========================================================================
-    // Final Enable Sequence
-    // ========================================================================
-    delay(50);
-    es7210_write_reg(ES7210_RESET_REG00, 0x71);  // Enable ADC1/2
-    delay(10);
-    es7210_write_reg(ES7210_RESET_REG00, 0x41);  // Normal operation
-
-    // Clock gating - enable all clocks
-    es7210_write_reg(ES7210_CLOCK_OFF_REG01, 0x00);
-
     es7210_initialized = true;
-    Serial.println("ES7210: Initialization complete");
+
+    // Dump registers to verify init
+    Serial.println("ES7210: Initialization complete — register dump:");
+    ES7210_dumpRegisters();
 
     return true;
 }

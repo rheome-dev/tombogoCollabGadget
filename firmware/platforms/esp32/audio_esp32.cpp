@@ -198,20 +198,21 @@ static bool es8311_init_codec(void) {
     // REG09 (SDP In / DAC): 16-bit I2S
     es8311_write_reg(ES8311_SDPIN_REG09, (3 << 2));
 
-    // REG0A (SDP Out / ADC): 16-bit I2S
-    es8311_write_reg(ES8311_SDPOUT_REG0A, (3 << 2));
+    // Disable REG0A (SDP Out / ADC) to tristate the DOUT pin!
+    // If ES8311 ADC is active, it fights the ES7210 on GPIO 10.
+    es8311_write_reg(ES8311_SDPOUT_REG0A, 0x00);
 
-    // Power up analog circuitry
+    // Power up analog circuitry (DAC only)
     es8311_write_reg(ES8311_SYSTEM_REG0D, 0x01);
     es8311_write_reg(ES8311_SYSTEM_REG0E, 0x02);
     es8311_write_reg(ES8311_SYSTEM_REG12, 0x00);
     es8311_write_reg(ES8311_SYSTEM_REG13, 0x10);
 
-    // ADC config
-    es8311_write_reg(ES8311_ADC_REG1C, 0x6A);
-    es8311_write_reg(ES8311_SYSTEM_REG14, 0x1A);  // Enable analog MIC, max PGA gain
-    es8311_write_reg(ES8311_ADC_REG17, 0xC8);     // ADC gain
-    es8311_write_reg(ES8311_ADC_REG16, 0x03);     // Mic gain ~18dB
+    // Disable ADC config to ensure no data is driven
+    es8311_write_reg(ES8311_ADC_REG1C, 0x00);
+    es8311_write_reg(ES8311_SYSTEM_REG14, 0x00);  // Disable analog MIC
+    es8311_write_reg(ES8311_ADC_REG17, 0x00);     // ADC gain
+    es8311_write_reg(ES8311_ADC_REG16, 0x00);     // Mic gain
 
     // DAC config
     es8311_write_reg(ES8311_DAC_REG37, 0x08);
@@ -238,7 +239,7 @@ void AudioHAL_init(void) {
     i2s_config_t i2sConfig = {};
     i2sConfig.mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_TX | I2S_MODE_RX);
     i2sConfig.sample_rate = SAMPLE_RATE;
-    i2sConfig.bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT;
+    i2sConfig.bits_per_sample = I2S_BITS_PER_SAMPLE_32BIT;  // Force 64 BCLKs/frame to satisfy ES7210 24-bit default
     i2sConfig.channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT;
     i2sConfig.communication_format = I2S_COMM_FORMAT_STAND_I2S;
     i2sConfig.intr_alloc_flags = ESP_INTR_FLAG_LEVEL1;
@@ -279,9 +280,10 @@ void AudioHAL_init(void) {
     }
 
     es7210_config_t es7210_cfg = ES7210_CONFIG_DEFAULT();
+    es7210_cfg.mics = ES7210_MIC_ALL;  // Enable all 4 mics (Waveshare may use MIC1/MIC3)
     es7210_cfg.gain = ES7210_GAIN_24DB;
     es7210_cfg.sample_rate = (es7210_sample_rate_t)SAMPLE_RATE;
-    es7210_cfg.bits = ES7210_BITS_16;
+    es7210_cfg.bits = ES7210_BITS_32;  // Match ESP32 I2S 32-bit frame width
     es7210_cfg.i2s_format = ES7210_I2S_NORMAL;
     es7210_cfg.enable_tdm = false;
     es7210_cfg.mclk_freq = MCLK_FREQ;
@@ -355,19 +357,35 @@ uint32_t AudioHAL_readMic(int16_t* buffer, uint32_t samples) {
     if (!audioInitialized || !audioRunning || !buffer) return 0;
 
     size_t bytesRead = 0;
-    esp_err_t err = i2s_read(I2S_PORT, buffer, samples * sizeof(int16_t) * 2,
-                             &bytesRead, 10 / portTICK_PERIOD_MS);
+    // Read 32-bit data (2 channels)
+    static int32_t i2s32Buf[AUDIO_BUFFER_SIZE * 2];
+    esp_err_t err = i2s_read(I2S_PORT, i2s32Buf, samples * sizeof(int32_t) * 2,
+                             &bytesRead, 100 / portTICK_PERIOD_MS);
     if (err != ESP_OK) return 0;
 
-    return bytesRead / (sizeof(int16_t) * 2);
+    uint32_t framesRead = bytesRead / (sizeof(int32_t) * 2);
+
+    // Convert 32-bit (where 24-bit audio is MSB aligned) to 16-bit
+    for (uint32_t i = 0; i < framesRead * 2; i++) {
+        // Shift right by 16 to get the top 16 bits of the 32-bit word
+        buffer[i] = (int16_t)(i2s32Buf[i] >> 16);
+    }
+
+    return framesRead;
 }
 
 void AudioHAL_writeSpeaker(const int16_t* buffer, uint32_t samples) {
     if (!audioInitialized || !audioRunning || !buffer) return;
 
+    static int32_t i2s32WriteBuf[AUDIO_BUFFER_SIZE * 2];
+    for (uint32_t i = 0; i < samples * 2; i++) {
+        // Shift left by 16 to put our 16-bit sample into the MSBs of the 32-bit word
+        i2s32WriteBuf[i] = ((int32_t)buffer[i]) << 16;
+    }
+
     size_t bytesWritten = 0;
-    i2s_write(I2S_PORT, buffer, samples * sizeof(int16_t) * 2,
-              &bytesWritten, 10 / portTICK_PERIOD_MS);
+    i2s_write(I2S_PORT, i2s32WriteBuf, samples * sizeof(int32_t) * 2,
+              &bytesWritten, 100 / portTICK_PERIOD_MS);
 }
 
 bool AudioHAL_micAvailable(void) {

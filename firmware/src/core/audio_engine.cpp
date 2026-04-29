@@ -42,6 +42,9 @@ static bool wasPlaying = false;
 static uint32_t micDiagCount = 0;
 static int16_t micDiagMin = 0;
 static int16_t micDiagMax = 0;
+static uint32_t processCallCount = 0;
+static uint32_t micReadFailCount = 0;
+static uint32_t lastDiagMs = 0;
 
 // Engine state
 static bool chopEnabled = false;
@@ -106,6 +109,8 @@ void AudioEngine_playTestTone(void) {
 }
 
 void AudioEngine_process() {
+    processCallCount++;
+
     // If playing test tone, bypass normal signal chain
     if (testTonePlaying) {
         uint32_t count = AUDIO_BUFFER_SIZE;
@@ -135,15 +140,26 @@ void AudioEngine_process() {
         return;
     }
 
-    // Read stereo I2S input
+    // Read stereo I2S input from mic
     uint32_t stereoSamples = AudioHAL_readMic(i2sReadBuf, AUDIO_BUFFER_SIZE);
-    if (stereoSamples == 0) return;
+    bool micGotData = (stereoSamples > 0);
 
-    uint32_t monoCount = stereoSamples;
+    // Use AUDIO_BUFFER_SIZE as our frame size regardless of mic read result.
+    // This ensures loop playback and output continue even if mic read fails.
+    uint32_t monoCount = micGotData ? stereoSamples : AUDIO_BUFFER_SIZE;
 
-    // Extract mono from stereo (take left channel)
-    for (uint32_t i = 0; i < monoCount; i++) {
-        monoMic[i] = i2sReadBuf[i * 2];
+    if (micGotData) {
+        // Extract mono from stereo — mix both channels since ES7210
+        // mic data may arrive on either L or R depending on TDM slot
+        for (uint32_t i = 0; i < monoCount; i++) {
+            int32_t L = i2sReadBuf[i * 2];
+            int32_t R = i2sReadBuf[i * 2 + 1];
+            monoMic[i] = (int16_t)((L + R) / 2);
+        }
+    } else {
+        // No mic data — fill with silence
+        memset(monoMic, 0, monoCount * sizeof(int16_t));
+        micReadFailCount++;
     }
 
     // Tick BPM clock once per sample
@@ -158,24 +174,59 @@ void AudioEngine_process() {
     }
     micDiagCount += monoCount;
     if (micDiagCount >= SAMPLE_RATE * 2) {
-        Serial.printf("[MIC] min=%d max=%d range=%d (silence < 100, noise > 1000)\n",
-                      micDiagMin, micDiagMax, micDiagMax - micDiagMin);
+        uint32_t now = millis();
+        if (now - lastDiagMs >= 2000) {
+            // Also check raw stereo buffer for both channels
+            int16_t rawLMin = 0, rawLMax = 0, rawRMin = 0, rawRMax = 0;
+            if (micGotData) {
+                for (uint32_t i = 0; i < monoCount && i < 128; i++) {
+                    int16_t L = i2sReadBuf[i * 2];
+                    int16_t R = i2sReadBuf[i * 2 + 1];
+                    if (L < rawLMin) rawLMin = L;
+                    if (L > rawLMax) rawLMax = L;
+                    if (R < rawRMin) rawRMin = R;
+                    if (R > rawRMax) rawRMax = R;
+                }
+            }
+            Serial.printf("[MIC] mono: min=%d max=%d | stereo L:[%d,%d] R:[%d,%d] | fails=%u | got=%u | playing=%d\n",
+                          micDiagMin, micDiagMax,
+                          rawLMin, rawLMax, rawRMin, rawRMax,
+                          (unsigned int)micReadFailCount, (unsigned int)stereoSamples,
+                          RetroactiveBuffer_isPlaying() ? 1 : 0);
+            lastDiagMs = now;
+        }
         micDiagMin = 0;
         micDiagMax = 0;
         micDiagCount = 0;
     }
 
-    // Feed mono mic into retroactive buffer
-    RetroactiveBuffer_write(monoMic, monoCount);
+    // Feed mono mic into retroactive buffer (only when we have real mic data)
+    if (micGotData) {
+        RetroactiveBuffer_write(monoMic, monoCount);
+    }
 
-    // Start with mic input as output
-    memcpy(monoOut, monoMic, monoCount * sizeof(int16_t));
+    // Start with silence (loop playback replaces this, or mic passthrough below)
+    memset(monoOut, 0, monoCount * sizeof(int16_t));
 
-    // Mix in loop playback if active (with pitch shift)
+    // Check loop playback state
     bool isPlaying = RetroactiveBuffer_isPlaying();
     if (isPlaying && !wasPlaying) {
-        Serial.printf("[LOOP] Playback started - capturing %u samples\n",
-                      (unsigned int)RetroactiveBuffer_getCapturedLength());
+        // Log capture details on first frame of playback
+        const int16_t* capBuf = RetroactiveBuffer_getCaptured();
+        uint32_t capLen = RetroactiveBuffer_getCapturedLength();
+        // Check if captured buffer has any non-zero data
+        int16_t capMin = 0, capMax = 0;
+        if (capBuf && capLen > 0) {
+            for (uint32_t i = 0; i < capLen; i += capLen / 100 + 1) {
+                if (capBuf[i] < capMin) capMin = capBuf[i];
+                if (capBuf[i] > capMax) capMax = capBuf[i];
+            }
+        }
+        Serial.printf("[LOOP] Playback started - %u samples, buffer range: min=%d max=%d\n",
+                      (unsigned int)capLen, capMin, capMax);
+        if (capMin == 0 && capMax == 0) {
+            Serial.println("[LOOP] WARNING: Captured buffer is ALL ZEROS — mic may not be recording!");
+        }
     }
     wasPlaying = isPlaying;
 
@@ -188,7 +239,6 @@ void AudioEngine_process() {
         uint32_t loopSamples;
         if (pitchSemitones != 0) {
             // Pitch shift via playback rate change
-            // Read more/fewer samples and resample
             const int16_t* captured = RetroactiveBuffer_getCaptured();
             uint32_t capturedLen = RetroactiveBuffer_getCapturedLength();
             if (captured && capturedLen > 0) {
@@ -212,17 +262,17 @@ void AudioEngine_process() {
             if (chopEnabled) {
                 uint32_t sliceLen = (uint32_t)SAMPLE_RATE * 60U / (BPMClock_getBPM() * 4U);
                 ChopEngine_process(monoLoop, monoChop, monoCount, sliceLen);
-
-                // Use chop output as the loop signal
                 memcpy(monoLoop, monoChop, monoCount * sizeof(int16_t));
             }
 
-            // Replace output with loop (mic muted during playback)
+            // Replace output with loop
             for (uint32_t i = 0; i < monoCount; i++) {
                 monoOut[i] = monoLoop[i];
             }
         }
     }
+    // When not playing, monoOut stays as silence (set by memset above).
+    // No mic passthrough — speaker+mic on same device = instant feedback.
 
     // Apply master volume (0-100 → 0-256 gain)
     uint16_t volGain = (uint16_t)masterVolume * 256 / 100;

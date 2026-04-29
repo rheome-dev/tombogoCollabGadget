@@ -133,8 +133,10 @@ static void handleCaptureInput(const InputMsg* msg) {
 static void handleChopInput(const InputMsg* msg) {
     switch (msg->type) {
         case EVT_ENCODER_PUSH:
-            // Tap-tempo in CHOP stage
-            BPMClock_tap();
+            // Toggle chop on/off (matches prototype behavior)
+            chopEnabled = !chopEnabled;
+            AudioEngine_setChopEnabled(chopEnabled);
+            Serial.printf("[CHOP] Toggled %s\n", chopEnabled ? "ON" : "OFF");
             break;
         case EVT_JOY_CENTER:
             ChopEngine_randomize();
@@ -163,8 +165,10 @@ static void handleChopInput(const InputMsg* msg) {
 static void handleResonateInput(const InputMsg* msg) {
     switch (msg->type) {
         case EVT_ENCODER_PUSH:
-            // Tap-tempo in RESONATE stage
-            BPMClock_tap();
+            // Toggle resonator on/off (matches prototype behavior)
+            resonatorEnabled = !resonatorEnabled;
+            AudioEngine_setResonatorEnabled(resonatorEnabled);
+            Serial.printf("[RESONATE] Toggled %s\n", resonatorEnabled ? "ON" : "OFF");
             break;
         case EVT_JOY_UP:
         case EVT_JOY_DOWN:
