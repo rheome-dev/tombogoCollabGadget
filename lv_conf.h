@@ -2,6 +2,7 @@
  * LVGL Configuration File
  *
  * Minimal configuration for the Tombogo Collab Gadget
+ * Must be in the project root for LVGL library includes
  */
 
 #ifndef LV_CONF_H

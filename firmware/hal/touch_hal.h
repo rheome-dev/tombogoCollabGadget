@@ -48,4 +48,15 @@ bool TouchHAL_isPressed(void);
  */
 bool TouchHAL_isReady(void);
 
+/**
+ * Raw read of touch count (no state caching) — for debug only
+ */
+uint8_t TouchHAL_getCount_raw(void);
+
+/**
+ * Raw read of touch point (no state caching) — for debug only
+ * Returns true if valid point was read into *x, *y
+ */
+bool TouchHAL_getPoint_raw(uint8_t index, int16_t* x, int16_t* y);
+
 #endif // TOUCH_HAL_H

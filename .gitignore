@@ -17,3 +17,9 @@
 # Web projects with their own repos (deployed on Vercel)
 web/morphingResonatorTest/
 web/rhiqoGoMobilePrototype/
+.sidecar-agent
+.sidecar-task
+.sidecar-pr
+.sidecar-start.sh
+.sidecar-base
+.td-root

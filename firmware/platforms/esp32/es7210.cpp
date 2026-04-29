@@ -323,10 +323,7 @@ bool ES7210_init(const es7210_config_t* config) {
         return false;
     }
 
-    // ========================================================================
-    // Power Down Control (DLL powered based on coeff)
-    // ========================================================================
-    es7210_write_reg(ES7210_POWER_DOWN_REG06, 0x04);  // DLL power down (not needed in slave)
+    // DLL power state is already set by es7210_config_clock() based on coefficients
 
     // ========================================================================
     // Final Enable Sequence

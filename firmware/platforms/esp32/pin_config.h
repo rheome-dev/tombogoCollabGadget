@@ -56,9 +56,9 @@
 #define I2C_SDA          15      // Shared: Touch, RTC, ES8311, ES7210, QMI8658
 
 // I2C Device Addresses
-#define TCA9554_ADDR     0x18    // IO Expander (LCD power/reset control)
+#define TCA9554_ADDR     0x20    // IO Expander (LCD power/reset control)
 #define PCF8574_ADDR     0x20    // External button expander (optional)
-#define ES8311_ADDR      0x30    // Audio DAC (speaker output)
+#define ES8311_ADDR      0x30    // Audio DAC (speaker output, per schematic)
 #define ES7210_ADDR      0x40    // Audio ADC (4-ch microphone array)
 #define RTC_ADDR         0x51    // PCF85063 RTC
 #define CST9217_ADDR     0x5A    // Touch controller
@@ -105,11 +105,28 @@
 #define UART0_RX         44      // U0RXD
 
 // ============================================================================
-// Optional External Pins (directly exposed)
+// MCP23017 IO Expander (I2C Bus 2 - separate from internal bus)
 // ============================================================================
-#define EXT_GPIO16       16      // Available on header
-#define EXT_GPIO17       17      // GPS RXD / NC
-#define EXT_GPIO18       18      // GPS TXD / NC
+#define I2C2_SDA         16      // H2 header IO16 (requires 4.7k pull-up to 3V3)
+#define I2C2_SCL         17      // H2 header IO17 (requires 4.7k pull-up to 3V3)
+#define MCP_INTA         18      // H2 header IO18 (MCP23017 interrupt, active low)
+#define MCP23017_I2C_ADDR 0x27   // A2/A1/A0 all grounded (verified from mcp_test)
+
+// MCP23017 pin assignments (Adafruit library: PA0-7 = 0-7, PB0-7 = 8-15)
+// Port A
+#define MCP_ENC_SW       0       // PA0 - Rotary encoder switch
+#define MCP_ENC_B        1       // PA1 - Rotary encoder channel B
+#define MCP_ENC_A        2       // PA2 - Rotary encoder channel A
+#define MCP_BTN_1        3       // PA3 - Push button 1 (top)
+#define MCP_BTN_2        4       // PA4 - Push button 2 (middle)
+#define MCP_BTN_3        5       // PA5 - Push button 3 (bottom)
+// PA6, PA7: unconnected (input with pull-up, safe)
+// Port B
+#define MCP_JOY_A        11      // PB3 - Joystick direction A
+#define MCP_JOY_B        12      // PB4 - Joystick direction B
+#define MCP_JOY_C        13      // PB5 - Joystick direction C
+#define MCP_JOY_CENTER   14      // PB6 - Joystick center press
+#define MCP_JOY_D        15      // PB7 - Joystick direction D
 
 // ============================================================================
 // Boot/Power

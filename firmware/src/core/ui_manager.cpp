@@ -5,6 +5,7 @@
  */
 
 #include "ui_manager.h"
+#include "stage_manager.h"
 #include "../config.h"
 #include "lvgl_driver.h"
 #include "../../hal/display_hal.h"
@@ -19,9 +20,11 @@ static const uint32_t TICK_PERIOD_MS = 5;
 // UI state
 static bool uiInitialized = false;
 
-// UI elements (example - expand as needed)
+// UI elements
 static lv_obj_t* mainScreen = nullptr;
 static lv_obj_t* statusLabel = nullptr;
+static lv_obj_t* stageLabel = nullptr;
+static Stage lastDisplayedStage = STAGE_IDLE;
 
 /**
  * Create the initial UI layout
@@ -30,23 +33,29 @@ static void create_ui(void) {
     // Get the active screen
     mainScreen = lv_scr_act();
 
-    // Set background color (dark blue/purple for retro aesthetic)
-    lv_obj_set_style_bg_color(mainScreen, lv_color_hex(0x1a1a2e), LV_PART_MAIN);
+    // Set background color (dark for AMOLED)
+    lv_obj_set_style_bg_color(mainScreen, lv_color_hex(0x000000), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(mainScreen, LV_OPA_COVER, LV_PART_MAIN);
 
-    // Create a simple status label
+    // Clip to circle (round 466px display, radius = 233)
+    lv_obj_set_style_radius(mainScreen, 233, LV_PART_MAIN);
+    lv_obj_set_style_clip_corner(mainScreen, true, LV_PART_MAIN);
+
+    // Title
     statusLabel = lv_label_create(mainScreen);
-    lv_label_set_text(statusLabel, "Tombogo Gadget");
+    lv_label_set_text(statusLabel, "TOMBOGO");
     lv_obj_set_style_text_color(statusLabel, lv_color_hex(0x00ffcc), LV_PART_MAIN);
-    lv_obj_set_style_text_font(statusLabel, &lv_font_montserrat_24, LV_PART_MAIN);
-    lv_obj_align(statusLabel, LV_ALIGN_CENTER, 0, -180);
+    lv_obj_set_style_text_font(statusLabel, &lv_font_montserrat_14, LV_PART_MAIN);
+    lv_obj_align(statusLabel, LV_ALIGN_CENTER, 0, -60);
 
-    // Create subtitle
-    lv_obj_t* subtitleLabel = lv_label_create(mainScreen);
-    lv_label_set_text(subtitleLabel, "Touch to interact");
-    lv_obj_set_style_text_color(subtitleLabel, lv_color_hex(0x808080), LV_PART_MAIN);
-    lv_obj_align(subtitleLabel, LV_ALIGN_CENTER, 0, -140);
+    // Stage indicator (large, centered)
+    stageLabel = lv_label_create(mainScreen);
+    lv_label_set_text(stageLabel, "IDLE");
+    lv_obj_set_style_text_color(stageLabel, lv_color_hex(0xffffff), LV_PART_MAIN);
+    lv_obj_set_style_text_font(stageLabel, &lv_font_montserrat_14, LV_PART_MAIN);
+    lv_obj_align(stageLabel, LV_ALIGN_CENTER, 0, 20);
 
-    Serial.println("UI: Main screen created");
+    Serial.println("UI: Main screen created (round clipping enabled)");
 }
 
 void UIManager_init() {
@@ -81,6 +90,25 @@ void UIManager_update() {
     if (elapsed >= TICK_PERIOD_MS) {
         LVGL_driver_tick(elapsed);
         lastTickTime = now;
+    }
+
+    // Update stage display if changed
+    Stage current = StageManager_current();
+    if (current != lastDisplayedStage && stageLabel) {
+        lastDisplayedStage = current;
+        const char* name = StageManager_stageName();
+        lv_label_set_text(stageLabel, name);
+
+        // Color per stage
+        uint32_t color = 0xffffff;
+        switch (current) {
+            case STAGE_IDLE:           color = 0x808080; break;
+            case STAGE_CAPTURE_REVIEW: color = 0x00ff88; break;
+            case STAGE_CHOP:           color = 0xff4444; break;
+            case STAGE_RESONATE:       color = 0x4488ff; break;
+            default: break;
+        }
+        lv_obj_set_style_text_color(stageLabel, lv_color_hex(color), LV_PART_MAIN);
     }
 
     // Run LVGL task handler (processes drawing, animations, input)

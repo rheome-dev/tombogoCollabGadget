@@ -54,12 +54,11 @@ void DisplayHAL_init(void) {
     );
 
     // Create CO5300 display device (AMOLED driver IC)
-    // Note: TCA9554 handles power and reset BEFORE this is called
-    // Pass -1 for reset pin since TCA9554 already handled it
+    // Use direct GPIO reset (same as Waveshare example) plus TCA9554 power control
     gfx = new Arduino_CO5300(
         bus,
-        -1,             // Reset already handled by TCA9554
-        0,              // Rotation 0 (portrait)
+        LCD_RESET,      // GPIO39 hardware reset (same as Waveshare example)
+        0,              // Normal
         false,          // IPS mode off for AMOLED
         LCD_WIDTH,      // 466
         LCD_HEIGHT      // 466
@@ -78,8 +77,7 @@ void DisplayHAL_init(void) {
 
     Serial.println("ESP32: Display started successfully");
 
-    // Set default display parameters
-    gfx->setRotation(0);  // Portrait orientation
+    // Rotation 0 = normal
 
     // Initialize with black screen
     gfx->fillScreen(BLACK);

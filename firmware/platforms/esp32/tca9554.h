@@ -11,8 +11,9 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-// TCA9554 I2C address (A0=0, A1=0, A2=0 on Waveshare board)
-#define TCA9554_I2C_ADDR    0x18
+// TCA9554 I2C address (A0=0, A1=0, A2=0 → 0x20 per datasheet)
+// Was incorrectly 0x18 which collides with ES8311 codec
+#define TCA9554_I2C_ADDR    0x20
 
 // TCA9554 Registers
 #define TCA9554_REG_INPUT   0x00  // Input port register (read-only)

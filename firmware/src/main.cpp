@@ -13,82 +13,89 @@
 #include "hal/imu_hal.h"
 #include "hal/touch_hal.h"
 #include "hal/storage_hal.h"
-#include "hal/button_hal.h"
 #include "core/audio_engine.h"
 #include "core/ui_manager.h"
 #include "core/retroactive_buffer.h"
-
-// FreeRTOS task handles (if using)
-TaskHandle_t audioTaskHandle = NULL;
-TaskHandle_t imuTaskHandle = NULL;
-TaskHandle_t uiTaskHandle = NULL;
-
-// Global state
-SystemState g_systemState;
-
-// ─── Button Callback ────────────────────────────────────────────────────────
-// Record button (P0 on PCF8574): tap = capture + start looping playback
-// Tap again while playing = stop playback
-
-static void onButtonEvent(ButtonId id, ButtonState state) {
-    if (state != BUTTON_PRESSED) return;  // Ignore release / long-press for now
-
-    if (id == BUTTON_RECORD) {
-        if (RetroactiveBuffer_isPlaying()) {
-            // Stop playback on second tap
-            RetroactiveBuffer_stopPlayback();
-            AudioEngine_setPlaying(false);
-        } else {
-            // First tap: capture what's in the buffer, then loop it
-            AudioEngine_triggerCapture();
-            RetroactiveBuffer_startPlayback();
-            AudioEngine_setPlaying(true);
-        }
-    }
-    // Future: other buttons for stop/clear/resonate
-}
+#include "core/stage_manager.h"
+#include "input/input_task.h"
+#include "core/bpm_clock.h"
 
 void setup() {
     Serial.begin(115200);
-    delay(100);  // Give serial time to stabilize
+    delay(7000);  // Allow time to connect serial monitor before boot output
 
-    Serial.println("\n=== Tombogo Collab Gadget v0.1 ===");
+    Serial.println("\n=== Tombogo Collab Gadget v0.3 ===");
     Serial.println("Platform: ESP32-S3 (Waveshare AMOLED)");
-    Serial.printf("PSRAM: %s\n", psramFound() ? "Available" : "Not found");
+
+    // Force PSRAM initialization and detection FIRST
+    if (ESP.getPsramSize() == 0) {
+        Serial.println("PSRAM: Detecting...");
+        esp_err_t err = esp_spiram_init();
+        if (err == ESP_OK) {
+            uint32_t psramSize = esp_spiram_get_size();
+            Serial.printf("PSRAM: Initialized - %u bytes\n", psramSize);
+        } else {
+            Serial.printf("PSRAM: Init failed (0x%x) - buffer allocation will fail\n", err);
+        }
+    } else {
+        Serial.printf("PSRAM: %u bytes available\n", ESP.getPsramSize());
+    }
+    Serial.printf("PSRAM status: %u bytes free, %u total\n",
+                   ESP.getFreePsram(), ESP.getPsramSize());
     Serial.println("Setup starting...");
 
     // Initialize hardware abstraction layer
     HAL_init();
+    Serial.printf("  After HAL init   - Heap: %u, PSRAM: %u\n",
+                   ESP.getFreeHeap(), ESP.getFreePsram());
 
     // Initialize storage (SD card)
     StorageHAL_init();
+    Serial.printf("  After storage    - Heap: %u, PSRAM: %u\n",
+                   ESP.getFreeHeap(), ESP.getFreePsram());
 
-    // Initialize buttons (PCF8574)
-    ButtonHAL_init();
-    if (ButtonHAL_isConnected()) {
-        Serial.println("Buttons: PCF8574 connected");
-        ButtonHAL_onPress(onButtonEvent);
-    } else {
-        Serial.println("Buttons: PCF8574 not found (optional)");
-    }
-
-    // Initialize audio engine
+    // Initialize audio engine (includes retroactive buffer)
     AudioEngine_init();
+    Serial.printf("  After audio      - Heap: %u, PSRAM: %u\n",
+                   ESP.getFreeHeap(), ESP.getFreePsram());
 
-    // Initialize retroactive buffer
-    RetroactiveBuffer_init();
+    // Initialize stage manager
+    StageManager_init();
+    Serial.printf("  After stage      - Heap: %u, PSRAM: %u\n",
+                   ESP.getFreeHeap(), ESP.getFreePsram());
+
+    // Initialize BPM clock
+    BPMClock_init(120);
+    BPMClock_start();
+    Serial.printf("  After BPM clock  - Heap: %u, PSRAM: %u\n",
+                   ESP.getFreeHeap(), ESP.getFreePsram());
 
     // Initialize UI
     UIManager_init();
+    Serial.printf("  After UI         - Heap: %u, PSRAM: %u\n",
+                   ESP.getFreeHeap(), ESP.getFreePsram());
+
+    // Start input task (Core 0, 10ms polling)
+    InputTask_start();
+    Serial.printf("  After input      - Heap: %u, PSRAM: %u\n",
+                   ESP.getFreeHeap(), ESP.getFreePsram());
+
+    // Start audio hardware (enables PA, ES8311, ES7210)
+    AudioHAL_start();
+
+    // Start audio task on Core 1 (high priority, drives the entire DSP chain)
+    AudioEngine_startTask();
+    Serial.printf("  After audio task - Heap: %u, PSRAM: %u\n",
+                   ESP.getFreeHeap(), ESP.getFreePsram());
+
+    // Play a 440Hz test tone to verify audio output path
+    AudioEngine_playTestTone();
 
     Serial.println("\n=== Ready! ===");
 }
 
 void loop() {
-    // Update button states
-    ButtonHAL_update();
-
-    // UI updates on main loop
+    StageManager_update();
     UIManager_update();
 
     delay(MAIN_LOOP_DELAY_MS);

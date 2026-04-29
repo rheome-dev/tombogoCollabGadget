@@ -32,37 +32,59 @@ void IMUHAL_init(void) {
     // Create QMI8658 sensor instance
     qmi8658 = new SensorQMI8658();
 
-    // Initialize the sensor
-    if (!qmi8658->begin(Wire, QMI8658_ADDR)) {
-        Serial.println("ESP32: QMI8658 init failed!");
-        imuAvailable = false;
-        return;
+    // Set the interrupt pin so getDataReady() can use it
+    qmi8658->setPins(QMI_INT2);
+
+    // Scan I2C bus first to see what's there
+    Serial.println("  [IMU] Scanning I2C bus for QMI8658...");
+    for (uint8_t addr = 0x68; addr <= 0x6C; addr++) {
+        Wire.beginTransmission(addr);
+        uint8_t err = Wire.endTransmission();
+        const char* found = (err == 0) ? "FOUND" : "no ack";
+        Serial.printf("    0x%02X: %s\n", addr, found);
     }
 
+    // Try low address (0x6B) first
+    Serial.println("  [IMU] Trying QMI8658_L_SLAVE_ADDRESS (0x6B)...");
+    if (!qmi8658->begin(Wire, 0x6B)) {
+        Serial.println("  [IMU] 0x6B failed, trying 0x6A...");
+        if (!qmi8658->begin(Wire, 0x6A)) {
+            Serial.println("ESP32: QMI8658 init failed on both 0x6B and 0x6A!");
+            imuAvailable = false;
+            return;
+        }
+        Serial.println("  [IMU] Found at 0x6A!");
+    }
+
+    // Read chip ID for verification
+    uint8_t chipId = qmi8658->whoAmI();
+    Serial.printf("  [IMU] Chip ID: 0x%02X\n", chipId);
+
     // Configure accelerometer
-    // Range: ±2g, ±4g, ±8g, ±16g
     qmi8658->configAccelerometer(
-        SensorQMI8658::ACC_RANGE_2G,       // Range
-        SensorQMI8658::ACC_ODR_1000Hz,    // Output data rate
-        SensorQMI8658::LPF_MODE_0         // Low-pass filter
+        SensorQMI8658::ACC_RANGE_2G,
+        SensorQMI8658::ACC_ODR_1000Hz,
+        SensorQMI8658::LPF_MODE_0
     );
 
     // Configure gyroscope
-    // Range: ±16, ±32, ±64, ±128, ±256, ±512, ±1024, ±2048 deg/s
     qmi8658->configGyroscope(
-        SensorQMI8658::GYR_RANGE_256DPS,   // Range
-        SensorQMI8658::GYR_ODR_896_8Hz,   // Output data rate
-        SensorQMI8658::LPF_MODE_0         // Low-pass filter
+        SensorQMI8658::GYR_RANGE_256DPS,
+        SensorQMI8658::GYR_ODR_896_8Hz,
+        SensorQMI8658::LPF_MODE_0
     );
 
-    // Enable interrupts (to signal data ready)
-    qmi8658->enableINT(SensorQMI8658::INTERRUPT_PIN_1);
+    // CRITICAL: Enable the sensors (config alone doesn't start them)
+    qmi8658->enableAccelerometer();
+    qmi8658->enableGyroscope();
+
+    // Enable data ready interrupt on INT2
+    qmi8658->enableINT(SensorQMI8658::INTERRUPT_PIN_2);
 
     imuAvailable = true;
     lastIMUUpdate = millis();
 
     Serial.println("ESP32: IMU initialized successfully");
-    Serial.printf("  QMI8658 I2C Address: 0x%02X\n", QMI8658_ADDR);
 }
 
 bool IMUHAL_read(IMUData* data) {
@@ -119,6 +141,33 @@ bool IMUHAL_read(IMUData* data) {
 
 bool IMUHAL_available(void) {
     return imuAvailable;
+}
+
+// Debug raw read — fills all 5 values, returns true on success
+// Bypasses getDataReady() gate so we can see raw sensor state
+bool IMUHAL_read_raw(float* ax, float* ay, float* az, float* pitch, float* roll) {
+    if (!imuAvailable || !qmi8658) return false;
+
+    // Read accel directly — no getDataReady() gate needed for debug
+    float aax, aay, aaz;
+    if (!qmi8658->getAccelerometer(aax, aay, aaz)) return false;
+
+    if (ax) *ax = aax;
+    if (ay) *ay = aay;
+    if (az) *az = aaz;
+
+    // Quick accel-based angles (no gyro integration for debug)
+    if (pitch) *pitch = atan2(-aax, sqrt(aay * aay + aaz * aaz)) * 180.0f / PI;
+    if (roll) *roll = atan2(aay, aaz) * 180.0f / PI;
+
+    return true;
+}
+
+// Dump QMI8658 control registers for diagnostics
+void IMUHAL_dumpRegs(void) {
+    if (!imuAvailable || !qmi8658) return;
+    qmi8658->dumpCtrlRegister();
+    Serial.printf("  [IMU_REGS] update=0x%02X\n", qmi8658->update() & 0xFF);
 }
 
 #endif // PLATFORM_ESP32
