@@ -33,6 +33,18 @@ static bool initialized = false;
 static const uint32_t BUF_SIZE = SCREEN_WIDTH * LVGL_BUFFER_LINES;
 
 /**
+ * Rounder callback - CO5300 QSPI requires even-aligned coordinates
+ * (from Waveshare example)
+ */
+static void disp_rounder_cb(lv_disp_drv_t* drv, lv_area_t* area) {
+    (void)drv;
+    if (area->x1 % 2 != 0) area->x1--;
+    if (area->y1 % 2 != 0) area->y1--;
+    if (area->x2 % 2 == 0) area->x2++;
+    if (area->y2 % 2 == 0) area->y2++;
+}
+
+/**
  * Display flush callback - called by LVGL when area needs updating
  */
 static void disp_flush_cb(lv_disp_drv_t* drv, const lv_area_t* area, lv_color_t* color_p) {
@@ -107,7 +119,10 @@ bool LVGL_driver_init(void) {
     disp_drv.hor_res = SCREEN_WIDTH;
     disp_drv.ver_res = SCREEN_HEIGHT;
     disp_drv.flush_cb = disp_flush_cb;
+    disp_drv.rounder_cb = disp_rounder_cb;
     disp_drv.draw_buf = &draw_buf;
+    disp_drv.sw_rotate = 1;
+    disp_drv.rotated = LV_DISP_ROT_270;
 
     // Register display driver
     disp = lv_disp_drv_register(&disp_drv);

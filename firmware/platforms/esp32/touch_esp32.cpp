@@ -72,8 +72,8 @@ uint8_t TouchHAL_getCount(void) {
     // Update stored touch points
     for (uint8_t i = 0; i < 5; i++) {
         if (i < count) {
-            touchPoints[i].x = x[i];
-            touchPoints[i].y = y[i];
+            touchPoints[i].x = y[i];
+            touchPoints[i].y = (int16_t)(screenWidth - 1) - x[i];
             touchPoints[i].pressed = true;
         } else {
             touchPoints[i].pressed = false;
@@ -104,6 +104,24 @@ bool TouchHAL_isPressed(void) {
 
 bool TouchHAL_isReady(void) {
     return touchAvailable && touch != nullptr;
+}
+
+uint8_t TouchHAL_getCount_raw(void) {
+    if (!touchAvailable || !touch) return 0;
+    int16_t x[5], y[5];
+    return touch->getPoint(x, y, 5);
+}
+
+bool TouchHAL_getPoint_raw(uint8_t index, int16_t* x, int16_t* y) {
+    if (!touchAvailable || !touch || index >= 5) return false;
+    int16_t tmpX[5], tmpY[5];
+    uint8_t count = touch->getPoint(tmpX, tmpY, 5);
+    if (index < count) {
+        if (x) *x = tmpX[index];
+        if (y) *y = tmpY[index];
+        return true;
+    }
+    return false;
 }
 
 #endif // PLATFORM_ESP32
