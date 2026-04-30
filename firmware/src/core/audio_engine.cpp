@@ -150,11 +150,11 @@ void AudioEngine_process() {
     uint32_t monoCount = micGotData ? stereoSamples : AUDIO_BUFFER_SIZE;
 
     if (micGotData) {
-        // Extract mono from stereo and apply mic input gain.
-        // Measured: ambient room noise (~60-74 dBSPL) reads ≈ ±800 counts (-33 dBFS)
-        // at 30dB PGA. Normal speech is 10-20 dB louder. 4× (12 dB) software gain
-        // keeps normal speech at -9 to -21 dBFS without clipping. 16× was too
-        // aggressive and caused hard clipping (square-wave distortion) on speech.
+        // Extract mono from stereo and apply mic input gain. ES7210 PGA at 30dB
+        // produces low-level signal in the 16-bit MSB; 4× software boost lifts
+        // normal speech into a usable range. Tune empirically: too high → clipping,
+        // too low → quiet recording. Audio quality (timbre, fidelity) is set by
+        // the I2S/MCLK config in audio_esp32.cpp, not this gain.
         for (uint32_t i = 0; i < monoCount; i++) {
             int32_t L = i2sReadBuf[i * 2];
             int32_t R = i2sReadBuf[i * 2 + 1];

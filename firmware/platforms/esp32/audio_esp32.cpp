@@ -38,11 +38,13 @@ static int32_t i2sDmaWriteBuf[AUDIO_BUFFER_SIZE * 2];
 static const i2s_port_t I2S_PORT = I2S_NUM_0;
 
 // MCLK: 12.288MHz is in the ES8311/ES7210 coefficient tables for 16kHz.
-// ESP32-S3 has no APLL — MCLK is derived from PLL_160M via fractional
-// divider (160MHz / 12.288MHz ≈ 13.02x — not integer). The I2S driver's
-// auto-calculation picks the best N + a/b fractional ratio to minimize
-// cycle-to-cycle jitter. We still tell the codecs their MCLK is 12.288MHz
-// for coefficient table lookup, since that's the closest achievable frequency.
+// ESP32-S3 has APLL — must use it for exact 12.288MHz. Without APLL the
+// peripheral derives MCLK from PLL_160M (160/12.288 = 13.02, non-integer),
+// giving ~0.16% MCLK error. The DAC tolerates this (test tone sounds fine,
+// pitch just slightly off). The ES7210 ADC does not — its sigma-delta
+// modulator + decimation filter require precise MCLK or output is garbled
+// "EM-sniffer noise" even though sample levels look correct in logs.
+// Documented in docs/FINDINGS.md → "APLL Must Stay Enabled".
 static const uint32_t MCLK_FREQ = 12288000;
 
 // ES8311 codec I2C address (7-bit: CE pin low = 0x18)
@@ -289,11 +291,9 @@ void AudioHAL_init(void) {
     i2sConfig.intr_alloc_flags = ESP_INTR_FLAG_LEVEL1;
     i2sConfig.dma_buf_count = 16;
     i2sConfig.dma_buf_len = 512;
-    i2sConfig.use_apll = false;   // ESP32-S3 has no APLL
+    i2sConfig.use_apll = true;    // ESP32-S3 has APLL — required for exact 12.288MHz
     i2sConfig.tx_desc_auto_clear = true;
-    // Do NOT set fixed_mclk — let the driver auto-calculate the best
-    // fractional divider from PLL_160M. Forcing 12.288MHz causes the
-    // divider to oscillate between /13 and /14, maximizing jitter.
+    i2sConfig.fixed_mclk = (int)MCLK_FREQ;  // APLL configures to exactly this frequency
 
     esp_err_t err = i2s_driver_install(I2S_PORT, &i2sConfig, 0, NULL);
     if (err != ESP_OK) {
