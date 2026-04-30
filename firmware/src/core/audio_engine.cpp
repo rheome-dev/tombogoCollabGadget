@@ -150,12 +150,18 @@ void AudioEngine_process() {
     uint32_t monoCount = micGotData ? stereoSamples : AUDIO_BUFFER_SIZE;
 
     if (micGotData) {
-        // Extract mono from stereo — mix both channels since ES7210
-        // mic data may arrive on either L or R depending on TDM slot
+        // Extract mono from stereo and apply mic input gain.
+        // ES7210 at 30dB PGA with MEMS mics outputs ~-52 dBFS for normal speech,
+        // giving only 7-bit effective resolution in 16-bit buffers → bit-crushed.
+        // 16× boost brings normal speech (~463 counts) to ~7400 counts (-13 dBFS),
+        // yielding ~13 effective bits and clean audio quality.
         for (uint32_t i = 0; i < monoCount; i++) {
             int32_t L = i2sReadBuf[i * 2];
             int32_t R = i2sReadBuf[i * 2 + 1];
-            monoMic[i] = (int16_t)((L + R) / 2);
+            int32_t mono = ((L + R) / 2) * 16;
+            if (mono > 32767)  mono = 32767;
+            if (mono < -32768) mono = -32768;
+            monoMic[i] = (int16_t)mono;
         }
     } else {
         // No mic data — fill with silence
