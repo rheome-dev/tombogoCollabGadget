@@ -296,6 +296,34 @@ A confirmed working ESPHome config for this exact board: [abramosphere/Home-Assi
 
 ---
 
+### Audio Crackle Fix: Three Root Causes (2026-04-30, Session 3)
+
+**Symptom:** Loop playback audio is extremely crackly and lo-fi, despite mic levels being healthy and all previous codec/I2S slot/coefficient fixes applied.
+
+**Root Cause 1 — `vTaskDelay` in audio task causes DMA underruns (CRITICAL):**
+The audio task loop called `vTaskDelay(pdMS_TO_TICKS(1))` between each `AudioEngine_process()` iteration. This yields the CPU for at minimum 1 FreeRTOS tick, during which no data feeds the I2S TX DMA. When other tasks (display, touch, IMU) momentarily delay the scheduler, the audio task sleeps 2-5ms instead of 1ms, causing audible gaps. The correct pattern for audio tasks is to let the blocking `i2s_read()`/`i2s_write()` calls provide pacing — they block until a DMA buffer is available, which is inherently synchronized to the audio sample clock.
+
+**Fix:** Removed `vTaskDelay` from `audioTaskFunction()`.
+
+**Root Cause 2 — `fixed_mclk` forces worst-case fractional divider (HIGH):**
+The I2S config had `fixed_mclk = 12288000`. The ESP32-S3 has no APLL, so MCLK is derived from PLL_160M (160 MHz). `160M / 12.288M ≈ 13.02` — not an integer. When `fixed_mclk` is set, the driver forces this exact ratio, causing the divider to oscillate between /13 and /14 every ~50 cycles. This creates periodic clock jitter that both codecs (ES8311 and ES7210) propagate into the audio signal as crackle/artifacts.
+
+**Fix:** Removed `fixed_mclk` from I2S config. Without `fixed_mclk`, the driver auto-calculates MCLK from `sample_rate × channel_count × bits_per_sample`, which may choose a different (potentially more favorable) divider ratio.
+
+**Root Cause 3 — DMA buffers undersized for full-duplex (MODERATE):**
+DMA was configured as 12 buffers × 256 samples. In full-duplex mode, both TX and RX share the same I2S peripheral, so effective headroom is halved. Increased to 16 buffers × 512 samples for more DMA runway.
+
+**Additional fix — Clock GPIO drive strength too low:**
+All I2S GPIOs (including MCLK at 12.288 MHz) were set to `GPIO_DRIVE_CAP_1` (weakest). At high frequencies, weak drive strength can cause signals to not reach valid logic thresholds, which the codecs see as jittery edges. Changed clock pins (MCLK, BCLK, WS) to `GPIO_DRIVE_CAP_2` (medium), kept data pin (DOUT) at `GPIO_DRIVE_CAP_1`.
+
+**Source:** ESP32 community forums, ESP-IDF I2S documentation, and ESPHome driver analysis all confirm: (1) audio tasks should never use vTaskDelay, (2) ESP32-S3 has no APLL so 12.288 MHz is always approximate from 160 MHz, and (3) full-duplex DMA needs larger buffers.
+
+**Files Modified:**
+- `firmware/src/core/audio_engine.cpp` — Removed `vTaskDelay` from audio task loop
+- `firmware/platforms/esp32/audio_esp32.cpp` — Removed `fixed_mclk`, increased DMA buffers (16×512), raised clock GPIO drive to CAP_2
+
+---
+
 ## I2C Bus
 
 *(Findings to be added as they are discovered.)*

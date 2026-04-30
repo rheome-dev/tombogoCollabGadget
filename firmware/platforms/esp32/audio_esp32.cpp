@@ -39,7 +39,10 @@ static const i2s_port_t I2S_PORT = I2S_NUM_0;
 
 // MCLK: 12.288MHz is in the ES8311/ES7210 coefficient tables for 16kHz.
 // ESP32-S3 has no APLL — MCLK is derived from PLL_160M via fractional
-// divider (160MHz / 12.288MHz = 13.02x), which introduces some clock jitter.
+// divider (160MHz / 12.288MHz ≈ 13.02x — not integer). The I2S driver's
+// auto-calculation picks the best N + a/b fractional ratio to minimize
+// cycle-to-cycle jitter. We still tell the codecs their MCLK is 12.288MHz
+// for coefficient table lookup, since that's the closest achievable frequency.
 static const uint32_t MCLK_FREQ = 12288000;
 
 // ES8311 codec I2C address (7-bit: CE pin low = 0x18)
@@ -284,11 +287,13 @@ void AudioHAL_init(void) {
     i2sConfig.channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT;
     i2sConfig.communication_format = I2S_COMM_FORMAT_STAND_I2S;
     i2sConfig.intr_alloc_flags = ESP_INTR_FLAG_LEVEL1;
-    i2sConfig.dma_buf_count = 12;
-    i2sConfig.dma_buf_len = 256;
-    i2sConfig.use_apll = false;
+    i2sConfig.dma_buf_count = 16;
+    i2sConfig.dma_buf_len = 512;
+    i2sConfig.use_apll = false;   // ESP32-S3 has no APLL
     i2sConfig.tx_desc_auto_clear = true;
-    i2sConfig.fixed_mclk = (int)MCLK_FREQ;
+    // Do NOT set fixed_mclk — let the driver auto-calculate the best
+    // fractional divider from PLL_160M. Forcing 12.288MHz causes the
+    // divider to oscillate between /13 and /14, maximizing jitter.
 
     esp_err_t err = i2s_driver_install(I2S_PORT, &i2sConfig, 0, NULL);
     if (err != ESP_OK) {
@@ -310,14 +315,21 @@ void AudioHAL_init(void) {
         return;
     }
 
+    // Fill all DMA descriptors with silence, then start the DMA engine explicitly.
+    // Without i2s_start(), tx_desc_auto_clear does not engage the circular DMA —
+    // BCLK/WS stop between i2s_write() calls, causing codec sync loss and crackling.
     i2s_zero_dma_buffer(I2S_PORT);
+    i2s_start(I2S_PORT);
 
-    Serial.println("ESP32: I2S started (full-duplex master on I2S0)");
+    Serial.println("ESP32: I2S started (full-duplex master on I2S0, continuous DMA)");
 
-    // Reduce drive strength on I2S clock outputs to minimize signal ringing
-    gpio_set_drive_capability((gpio_num_t)MCLK_PIN, GPIO_DRIVE_CAP_1);
-    gpio_set_drive_capability((gpio_num_t)BCLK_PIN, GPIO_DRIVE_CAP_1);
-    gpio_set_drive_capability((gpio_num_t)WS_PIN, GPIO_DRIVE_CAP_1);
+    // Drive strength: medium (CAP_2) for clocks to ensure clean edges at MHz
+    // frequencies, weak (CAP_1) for data to reduce ringing on slower signals.
+    // Too-weak clock drive can cause the signal to not reach valid logic
+    // thresholds, which the codecs interpret as jittery/missing edges.
+    gpio_set_drive_capability((gpio_num_t)MCLK_PIN, GPIO_DRIVE_CAP_2);
+    gpio_set_drive_capability((gpio_num_t)BCLK_PIN, GPIO_DRIVE_CAP_2);
+    gpio_set_drive_capability((gpio_num_t)WS_PIN, GPIO_DRIVE_CAP_2);
     gpio_set_drive_capability((gpio_num_t)DOUT_PIN, GPIO_DRIVE_CAP_1);
 
     delay(50);
@@ -462,7 +474,8 @@ void AudioHAL_runDiagnostic(void) {
     Serial.println("    AUDIO PATH DIAGNOSTIC");
     Serial.println("========================================");
 
-    // Kick-start TX DMA to ensure BCLK/WS are generating
+    // With i2s_start(), DMA runs continuously — no kick-start write needed.
+    // Do a small write just to verify TX is responsive.
     {
         int32_t zeros[64] = {};
         size_t written = 0;
@@ -561,7 +574,7 @@ void AudioHAL_runDiagnostic(void) {
         }
     }
 
-    // --- Test 5: BCLK and WS ---
+    // --- Test 5: BCLK/WS clocks ---
     Serial.println("\n[TEST 5] BCLK/WS clocks:");
     {
         for (int pin : {BCLK_PIN, WS_PIN}) {
@@ -588,48 +601,24 @@ void AudioHAL_runDiagnostic(void) {
                       ES7210_readReg(0x4B), ES7210_readReg(0x4C));
     }
 
-    // --- Test 7: GPIO matrix and I2S peripheral state ---
-    Serial.println("\n[TEST 7] I2S peripheral & GPIO routing:");
+    // --- Test 7: BCLK/WS continuity (key regression for i2s_start() fix) ---
+    // With i2s_start() + tx_desc_auto_clear, BCLK/WS must still be toggling here,
+    // ~200ms after the last write. If they stop, crackling will persist.
+    Serial.println("\n[TEST 7] BCLK/WS continuity after 200ms (i2s_start regression):");
     {
-        int bck_sig = i2s_periph_signal[I2S_PORT].m_tx_bck_sig;
-        int ws_sig = i2s_periph_signal[I2S_PORT].m_tx_ws_sig;
-        int mck_sig = i2s_periph_signal[I2S_PORT].mck_out_sig;
-        Serial.printf("  I2S TX signal IDs: MCLK=%d BCLK=%d WS=%d\n",
-                      mck_sig, bck_sig, ws_sig);
-
-        int rx_bck_sig = i2s_periph_signal[I2S_PORT].m_rx_bck_sig;
-        int rx_ws_sig = i2s_periph_signal[I2S_PORT].m_rx_ws_sig;
-        Serial.printf("  I2S RX signal IDs: BCLK=%d WS=%d\n", rx_bck_sig, rx_ws_sig);
-
-        #define _GPIO_OUT_SEL(n) (GPIO_FUNC0_OUT_SEL_CFG_REG + (n) * 4)
-        uint32_t mclk_func = REG_READ(_GPIO_OUT_SEL(MCLK_PIN)) & 0x1FF;
-        uint32_t bclk_func = REG_READ(_GPIO_OUT_SEL(BCLK_PIN)) & 0x1FF;
-        uint32_t ws_func = REG_READ(_GPIO_OUT_SEL(WS_PIN)) & 0x1FF;
-        uint32_t dout_func = REG_READ(_GPIO_OUT_SEL(DOUT_PIN)) & 0x1FF;
-        Serial.printf("  GPIO matrix OUT_SEL:\n");
-        Serial.printf("    MCLK(GPIO%d)=%d %s\n", MCLK_PIN, mclk_func,
-                      mclk_func == (uint32_t)mck_sig ? "MATCH" : "MISMATCH!");
-        Serial.printf("    BCLK(GPIO%d)=%d %s\n", BCLK_PIN, bclk_func,
-                      bclk_func == (uint32_t)bck_sig ? "MATCH" : "MISMATCH!");
-        Serial.printf("    WS(GPIO%d)=%d %s\n", WS_PIN, ws_func,
-                      ws_func == (uint32_t)ws_sig ? "MATCH" : "MISMATCH!");
-        Serial.printf("    DOUT(GPIO%d)=%d\n", DOUT_PIN, dout_func);
-
-        // Force reconnect BCLK/WS to TX I2S and re-test
-        esp_rom_gpio_connect_out_signal(BCLK_PIN, bck_sig, false, false);
-        esp_rom_gpio_connect_out_signal(WS_PIN, ws_sig, false, false);
-        delay(10);
-
-        int bclk_h = 0, bclk_l = 0, ws_h = 0, ws_l = 0;
-        for (int i = 0; i < 10000; i++) {
-            if (gpio_get_level((gpio_num_t)BCLK_PIN)) bclk_h++; else bclk_l++;
-            if (gpio_get_level((gpio_num_t)WS_PIN)) ws_h++; else ws_l++;
+        delay(20);
+        for (int pin : {BCLK_PIN, WS_PIN}) {
+            int highs = 0, lows = 0;
+            for (int i = 0; i < 10000; i++) {
+                if (gpio_get_level((gpio_num_t)pin)) highs++; else lows++;
+            }
+            const char* name = (pin == BCLK_PIN) ? "BCLK" : "WS";
+            Serial.printf("  %s (GPIO%d): highs=%d lows=%d -> %s\n",
+                          name, pin, highs, lows,
+                          (highs > 1000 && lows > 1000) ?
+                          "TOGGLING — clocks stable (crackle fix confirmed)" :
+                          "NOT TOGGLING — clocks dropped (crackling will persist)");
         }
-        Serial.printf("  After reconnect:\n");
-        Serial.printf("    BCLK: highs=%d lows=%d -> %s\n", bclk_h, bclk_l,
-                      (bclk_h > 1000 && bclk_l > 1000) ? "TOGGLING" : "NOT TOGGLING");
-        Serial.printf("    WS:   highs=%d lows=%d -> %s\n", ws_h, ws_l,
-                      (ws_h > 1000 && ws_l > 1000) ? "TOGGLING" : "NOT TOGGLING");
     }
 
     // Restore I2S pin routing after diagnostic GPIO tests

@@ -80,9 +80,11 @@ static void audioTaskFunction(void* param) {
     (void)param;
     Serial.println("AudioTask: Started on Core 1");
 
+    // No vTaskDelay here — i2s_read/i2s_write block until DMA buffers
+    // are available, which provides correct audio-clock-synchronized pacing.
+    // Adding vTaskDelay causes DMA underruns → crackling.
     while (true) {
         AudioEngine_process();
-        vTaskDelay(pdMS_TO_TICKS(AUDIO_TASK_DELAY_MS));
     }
 }
 
