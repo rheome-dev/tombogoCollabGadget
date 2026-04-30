@@ -199,6 +199,14 @@ bool ES7210_setMute(bool mute);
 uint8_t ES7210_readReg(uint8_t reg);
 
 /**
+ * Write register value (for debugging/diagnostics)
+ * @param reg Register address
+ * @param value Value to write
+ * @return true on success
+ */
+bool ES7210_writeReg(uint8_t reg, uint8_t value);
+
+/**
  * Check if ES7210 is present on I2C bus
  * @return true if device responds
  */

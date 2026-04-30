@@ -44,7 +44,6 @@ static int16_t micDiagMin = 0;
 static int16_t micDiagMax = 0;
 static uint32_t processCallCount = 0;
 static uint32_t micReadFailCount = 0;
-static uint32_t lastDiagMs = 0;
 
 // Engine state
 static bool chopEnabled = false;
@@ -60,7 +59,7 @@ static bool testTonePlaying = false;
 static uint32_t testToneSamplesLeft = 0;
 static float testTonePhase = 0.0f;
 static const float TEST_TONE_FREQ = 440.0f;
-static const uint32_t TEST_TONE_DURATION_MS = 1500;
+static const uint32_t TEST_TONE_DURATION_MS = 5000;
 
 void AudioEngine_init() {
     Serial.println("Initializing Audio Engine...");
@@ -167,34 +166,13 @@ void AudioEngine_process() {
         BPMClock_tick();
     }
 
-    // Mic level diagnostics (log every 2 seconds)
+    // Mic level tracking (no serial output in hot path — causes DMA underruns)
     for (uint32_t i = 0; i < monoCount; i++) {
         if (monoMic[i] < micDiagMin) micDiagMin = monoMic[i];
         if (monoMic[i] > micDiagMax) micDiagMax = monoMic[i];
     }
     micDiagCount += monoCount;
     if (micDiagCount >= SAMPLE_RATE * 2) {
-        uint32_t now = millis();
-        if (now - lastDiagMs >= 2000) {
-            // Also check raw stereo buffer for both channels
-            int16_t rawLMin = 0, rawLMax = 0, rawRMin = 0, rawRMax = 0;
-            if (micGotData) {
-                for (uint32_t i = 0; i < monoCount && i < 128; i++) {
-                    int16_t L = i2sReadBuf[i * 2];
-                    int16_t R = i2sReadBuf[i * 2 + 1];
-                    if (L < rawLMin) rawLMin = L;
-                    if (L > rawLMax) rawLMax = L;
-                    if (R < rawRMin) rawRMin = R;
-                    if (R > rawRMax) rawRMax = R;
-                }
-            }
-            Serial.printf("[MIC] mono: min=%d max=%d | stereo L:[%d,%d] R:[%d,%d] | fails=%u | got=%u | playing=%d\n",
-                          micDiagMin, micDiagMax,
-                          rawLMin, rawLMax, rawRMin, rawRMax,
-                          (unsigned int)micReadFailCount, (unsigned int)stereoSamples,
-                          RetroactiveBuffer_isPlaying() ? 1 : 0);
-            lastDiagMs = now;
-        }
         micDiagMin = 0;
         micDiagMax = 0;
         micDiagCount = 0;
@@ -210,30 +188,11 @@ void AudioEngine_process() {
 
     // Check loop playback state
     bool isPlaying = RetroactiveBuffer_isPlaying();
-    if (isPlaying && !wasPlaying) {
-        // Log capture details on first frame of playback
-        const int16_t* capBuf = RetroactiveBuffer_getCaptured();
-        uint32_t capLen = RetroactiveBuffer_getCapturedLength();
-        // Check if captured buffer has any non-zero data
-        int16_t capMin = 0, capMax = 0;
-        if (capBuf && capLen > 0) {
-            for (uint32_t i = 0; i < capLen; i += capLen / 100 + 1) {
-                if (capBuf[i] < capMin) capMin = capBuf[i];
-                if (capBuf[i] > capMax) capMax = capBuf[i];
-            }
-        }
-        Serial.printf("[LOOP] Playback started - %u samples, buffer range: min=%d max=%d\n",
-                      (unsigned int)capLen, capMin, capMax);
-        if (capMin == 0 && capMax == 0) {
-            Serial.println("[LOOP] WARNING: Captured buffer is ALL ZEROS — mic may not be recording!");
-        }
-    }
     wasPlaying = isPlaying;
 
     if (isPlaying) {
         loopPlayCount += monoCount;
         if (loopPlayCount >= SAMPLE_RATE) {
-            Serial.printf("[LOOP] Playing - %u samples/sec\n", (unsigned int)loopPlayCount);
             loopPlayCount = 0;
         }
         uint32_t loopSamples;

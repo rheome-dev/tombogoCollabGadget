@@ -281,11 +281,11 @@ bool ES7210_init(const es7210_config_t* config) {
     current_config = *config;
 
     // ========================================================================
-    // 1) Software Reset
+    // 1) Software Reset (ESPHome reference: 0xFF then 0x32)
     // ========================================================================
     es7210_write_reg(ES7210_RESET_REG00, 0xFF);  // Full reset
     delay(20);
-    es7210_write_reg(ES7210_RESET_REG00, 0x41);  // Exit reset
+    es7210_write_reg(ES7210_RESET_REG00, 0x32);  // Exit reset to intermediate state
     delay(20);
 
     // ========================================================================
@@ -313,48 +313,80 @@ bool ES7210_init(const es7210_config_t* config) {
     es7210_write_reg(ES7210_MODE_CONFIG_REG08, 0x00);
 
     // ========================================================================
-    // 6) Analog Power
+    // 6) Analog Power (initial)
     // ========================================================================
-    es7210_write_reg(ES7210_ANALOG_REG40, 0x43);
+    es7210_write_reg(ES7210_ANALOG_REG40, 0xC3);
     delay(10);
 
     // ========================================================================
-    // 7) Microphone Bias + Power + Gain
+    // 7) Mic bias only (power regs need clocks active)
     // ========================================================================
-    if (!es7210_config_mics(config)) {
-        Serial.println("ES7210: Mic config failed");
-        return false;
+    uint8_t mics = config->mics;
+    if (mics & (ES7210_MIC1 | ES7210_MIC2)) {
+        es7210_write_reg(ES7210_MIC12_BIAS_REG41, 0x70);
+    }
+    if (mics & (ES7210_MIC3 | ES7210_MIC4)) {
+        es7210_write_reg(ES7210_MIC34_BIAS_REG42, 0x70);
     }
 
     // ========================================================================
-    // 8) Clock Configuration (MCLK, LRCK dividers, OSR)
+    // 8) Clock Configuration (ESPHome reference: write full coefficient table)
+    // Previous approach skipped clock config in slave mode per Espressif
+    // esp_codec_dev, but ESPHome's working driver writes all clock regs.
+    // Values for {12288000, 16000}: adc_div=3, dll=1, doubler=1, osr=0x20
     // ========================================================================
-    if (!es7210_config_clock(config)) {
-        Serial.println("ES7210: Clock config failed");
-        return false;
-    }
+    es7210_write_reg(ES7210_MASTER_CLK_REG03, 0x00);  // Slave mode
+    es7210_write_reg(ES7210_MAINCLK_REG02, 0xC3);     // adc_div=3 | doubler | dll
+    es7210_write_reg(ES7210_OSR_REG07, 0x20);          // OSR
+    es7210_write_reg(ES7210_LRCK_DIVH_REG04, 0x03);   // LRCK divider high
+    es7210_write_reg(ES7210_LRCK_DIVL_REG05, 0x00);   // LRCK divider low
+    Serial.printf("ES7210: Clock config — REG02=0xC3 REG07=0x20 REG04=0x03 REG05=0x00\n");
 
     // ========================================================================
-    // 9) Start sequence — enable clocks, power on, start ADCs
-    // ========================================================================
-    es7210_write_reg(ES7210_CLOCK_OFF_REG01, 0x00);  // Un-gate all clocks
-    delay(10);
-    es7210_write_reg(ES7210_POWER_DOWN_REG06, 0x00);  // Power on
-    es7210_write_reg(ES7210_ANALOG_REG40, 0x43);      // Analog power (confirm)
-
-    // Enable ADC1/2/3/4
-    es7210_write_reg(ES7210_RESET_REG00, 0x71);
-    delay(10);
-    es7210_write_reg(ES7210_RESET_REG00, 0x41);
-    delay(10);
-
-    // ========================================================================
-    // 10) I2S Interface Configuration — AFTER ADCs are running
+    // 9) I2S Interface Configuration (ESPHome does this before mic power)
     // ========================================================================
     if (!es7210_config_i2s(config)) {
         Serial.println("ES7210: I2S config failed");
         return false;
     }
+
+    // ========================================================================
+    // 10) Mic gain configuration (ESPHome reference sequence)
+    // ========================================================================
+    ES7210_setGain(config->mics, config->gain);
+
+    // ========================================================================
+    // 11) Mic power on (ESPHome: REG47-4A=0x08, then REG06=0x04, then REG4B/4C)
+    // ========================================================================
+    es7210_write_reg(ES7210_MIC1_POWER_REG47, (mics & ES7210_MIC1) ? 0x08 : 0x00);
+    es7210_write_reg(ES7210_MIC2_POWER_REG48, (mics & ES7210_MIC2) ? 0x08 : 0x00);
+    es7210_write_reg(ES7210_MIC3_POWER_REG49, (mics & ES7210_MIC3) ? 0x08 : 0x00);
+    es7210_write_reg(ES7210_MIC4_POWER_REG4A, (mics & ES7210_MIC4) ? 0x08 : 0x00);
+
+    // Power down DLL (ESPHome: REG06=0x04 after mic power regs)
+    es7210_write_reg(ES7210_POWER_DOWN_REG06, 0x04);
+
+    // Power on MIC bias + ADC + PGA
+    es7210_write_reg(ES7210_MIC12_POWER_REG4B, 0x0F);
+    es7210_write_reg(ES7210_MIC34_POWER_REG4C, 0x0F);
+
+    // Un-gate all clocks before enabling device
+    es7210_write_reg(ES7210_CLOCK_OFF_REG01, 0x00);
+    delay(10);
+
+    // ========================================================================
+    // 12) Enable device (ESPHome: REG00=0x71 then 0x41)
+    // ========================================================================
+    es7210_write_reg(ES7210_RESET_REG00, 0x71);
+    delay(10);
+    es7210_write_reg(ES7210_RESET_REG00, 0x41);
+    delay(10);
+
+    Serial.printf("ES7210: Mic power set — REG4B=0x%02X REG4C=0x%02X REG40=0x%02X REG06=0x%02X\n",
+                  es7210_read_reg(ES7210_MIC12_POWER_REG4B),
+                  es7210_read_reg(ES7210_MIC34_POWER_REG4C),
+                  es7210_read_reg(ES7210_ANALOG_REG40),
+                  es7210_read_reg(ES7210_POWER_DOWN_REG06));
 
     es7210_initialized = true;
 
@@ -415,16 +447,16 @@ bool ES7210_setGain(es7210_mic_select_t mics, es7210_gain_t gain) {
     Serial.printf("ES7210: Setting gain to %ddB for mics 0x%02X\n", gain * 3, mics);
 
     if (mics & ES7210_MIC1) {
-        es7210_write_reg(ES7210_MIC1_GAIN_REG43, gain);
+        es7210_write_reg(ES7210_MIC1_GAIN_REG43, gain | 0x10);
     }
     if (mics & ES7210_MIC2) {
-        es7210_write_reg(ES7210_MIC2_GAIN_REG44, gain);
+        es7210_write_reg(ES7210_MIC2_GAIN_REG44, gain | 0x10);
     }
     if (mics & ES7210_MIC3) {
-        es7210_write_reg(ES7210_MIC3_GAIN_REG45, gain);
+        es7210_write_reg(ES7210_MIC3_GAIN_REG45, gain | 0x10);
     }
     if (mics & ES7210_MIC4) {
-        es7210_write_reg(ES7210_MIC4_GAIN_REG46, gain);
+        es7210_write_reg(ES7210_MIC4_GAIN_REG46, gain | 0x10);
     }
 
     return true;
@@ -446,6 +478,10 @@ bool ES7210_setMute(bool mute) {
 
 uint8_t ES7210_readReg(uint8_t reg) {
     return es7210_read_reg(reg);
+}
+
+bool ES7210_writeReg(uint8_t reg, uint8_t value) {
+    return es7210_write_reg(reg, value);
 }
 
 void ES7210_dumpRegisters(void) {

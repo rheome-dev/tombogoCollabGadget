@@ -54,4 +54,10 @@ bool AudioHAL_micAvailable(void);
  */
 bool AudioHAL_speakerReady(void);
 
+/**
+ * Run comprehensive audio path diagnostic
+ * Tests MCLK, GPIO10, I2S RX, TDM mode
+ */
+void AudioHAL_runDiagnostic(void);
+
 #endif // AUDIO_HAL_H

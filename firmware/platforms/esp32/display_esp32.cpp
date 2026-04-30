@@ -58,10 +58,14 @@ void DisplayHAL_init(void) {
     gfx = new Arduino_CO5300(
         bus,
         LCD_RESET,      // GPIO39 hardware reset (same as Waveshare example)
-        0,              // Normal
+        0,              // Rotation
         false,          // IPS mode off for AMOLED
         LCD_WIDTH,      // 466
-        LCD_HEIGHT      // 466
+        LCD_HEIGHT,     // 466
+        6,              // col_offset1 - CO5300 framebuffer is misaligned by 6 columns
+        0,              // row_offset1
+        0,              // col_offset2
+        0               // row_offset2
     );
 
     // Single begin() call - GFX library handles bus init internally

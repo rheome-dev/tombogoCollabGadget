@@ -6,6 +6,8 @@
  */
 
 #include <Arduino.h>
+#include <esp_wifi.h>
+#include <esp_bt.h>
 #include "config.h"
 #include "hal/hal.h"
 #include "hal/display_hal.h"
@@ -23,6 +25,15 @@
 void setup() {
     Serial.begin(115200);
     delay(7000);  // Allow time to connect serial monitor before boot output
+
+    // Kill WiFi/BT radio ASAP — current spikes from the radio modulate
+    // the power rail and inject noise into ES8311/ES7210 analog sections.
+    esp_wifi_stop();
+    esp_wifi_deinit();
+    esp_bt_controller_disable();
+    esp_bt_controller_deinit();
+    esp_bt_mem_release(ESP_BT_MODE_BTDM);
+    Serial.println("Radio: WiFi + BT disabled (audio noise reduction)");
 
     Serial.println("\n=== Tombogo Collab Gadget v0.3 ===");
     Serial.println("Platform: ESP32-S3 (Waveshare AMOLED)");
@@ -83,13 +94,17 @@ void setup() {
     // Start audio hardware (enables PA, ES8311, ES7210)
     AudioHAL_start();
 
-    // Start audio task on Core 1 (high priority, drives the entire DSP chain)
+    // Run diagnostic BEFORE audio task to avoid I2S contention
+    delay(200);
+    AudioHAL_runDiagnostic();
+
+    // Start audio task on Core 1
     AudioEngine_startTask();
     Serial.printf("  After audio task - Heap: %u, PSRAM: %u\n",
                    ESP.getFreeHeap(), ESP.getFreePsram());
 
-    // Play a 440Hz test tone to verify audio output path
-    AudioEngine_playTestTone();
+    // Test tone disabled (uncomment to test speaker/DAC path)
+    // AudioEngine_playTestTone();
 
     Serial.println("\n=== Ready! ===");
 }

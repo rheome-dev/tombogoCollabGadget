@@ -1,5 +1,9 @@
 # CLAUDE.md
 
+## MANDATORY: Commit After Every Task
+
+After completing any meaningful change (bug fix, feature, refactor), create a git commit immediately. Do not wait for the user to ask. Stage only relevant files (not .env, credentials, or unrelated changes), write a concise commit message in the style of the repo's history, and include the Co-Authored-By trailer.
+
 ## MANDATORY: Use td for Task Management
 
 You must run td usage --new-session at conversation start (or after /clear) to see current work.
