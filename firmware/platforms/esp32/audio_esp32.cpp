@@ -575,8 +575,17 @@ void AudioHAL_runDiagnostic(void) {
     }
 
     // --- Test 5: BCLK/WS clocks ---
+    // i2s_set_pin() leaves BCLK/WS as output-only (IE bit not set), so
+    // gpio_get_level() always returns 0. Set INPUT_OUTPUT and reconnect
+    // the I2S signal (same technique Test 1 uses for MCLK).
     Serial.println("\n[TEST 5] BCLK/WS clocks:");
     {
+        gpio_set_direction((gpio_num_t)BCLK_PIN, GPIO_MODE_INPUT_OUTPUT);
+        esp_rom_gpio_connect_out_signal(BCLK_PIN, i2s_periph_signal[I2S_PORT].m_tx_bck_sig, false, false);
+        gpio_set_direction((gpio_num_t)WS_PIN, GPIO_MODE_INPUT_OUTPUT);
+        esp_rom_gpio_connect_out_signal(WS_PIN, i2s_periph_signal[I2S_PORT].m_tx_ws_sig, false, false);
+        delayMicroseconds(50);
+
         for (int pin : {BCLK_PIN, WS_PIN}) {
             int highs = 0, lows = 0;
             for (int i = 0; i < 10000; i++) {
@@ -607,6 +616,9 @@ void AudioHAL_runDiagnostic(void) {
     Serial.println("\n[TEST 7] BCLK/WS continuity after 200ms (i2s_start regression):");
     {
         delay(20);
+        // INPUT_OUTPUT already set in Test 5; reconnect signals in case anything reset them
+        esp_rom_gpio_connect_out_signal(BCLK_PIN, i2s_periph_signal[I2S_PORT].m_tx_bck_sig, false, false);
+        esp_rom_gpio_connect_out_signal(WS_PIN, i2s_periph_signal[I2S_PORT].m_tx_ws_sig, false, false);
         for (int pin : {BCLK_PIN, WS_PIN}) {
             int highs = 0, lows = 0;
             for (int i = 0; i < 10000; i++) {

@@ -94,12 +94,16 @@ void setup() {
     // Start audio hardware (enables PA, ES8311, ES7210)
     AudioHAL_start();
 
-    // Run diagnostic BEFORE audio task to avoid I2S contention
+    // Start audio task on Core 1 BEFORE diagnostic — the audio task keeps the
+    // I2S DMA continuously fed with i2s_write() calls, which is the only thing
+    // that keeps BCLK/WS toggling in the legacy ESP-IDF 4.4.7 driver.
+    // Without the task running, the pre-filled DMA zero buffers drain and the
+    // clocks stop, giving false "NOT TOGGLING" results in the diagnostic.
+    AudioEngine_startTask();
+
+    // Let the audio task stabilize (fill DMA buffers and establish steady clocks)
     delay(200);
     AudioHAL_runDiagnostic();
-
-    // Start audio task on Core 1
-    AudioEngine_startTask();
     Serial.printf("  After audio task - Heap: %u, PSRAM: %u\n",
                    ESP.getFreeHeap(), ESP.getFreePsram());
 
