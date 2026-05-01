@@ -135,7 +135,16 @@ void ChopEngine_init(void) {
     state.stepSamples = 2000;
     state.sampleCounter = 0;
 
-    Serial.println("ChopEngine: Initialized");
+    // Compute the initial Euclidean pattern so the engine isn't silent the
+    // first time it's enabled at the default density (otherwise setDensity()
+    // early-returns when the requested value matches the init value).
+    uint8_t pulses = 2 + (uint8_t)(powf(state.density, 0.7f) * 14.0f);
+    if (pulses < 2) pulses = 2;
+    if (pulses > 16) pulses = 16;
+    bjorklund(pulses, state.steps, state.pattern);
+    for (uint8_t i = 0; i < state.steps; i++) {
+        state.playbackType[i] = state.pattern[i] ? randomPlaybackType() : (uint8_t)PLAY_NORMAL;
+    }
 }
 
 void ChopEngine_setSlices(const SliceInfo* slices, uint8_t count) {

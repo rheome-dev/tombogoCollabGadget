@@ -24,7 +24,6 @@
 
 void setup() {
     Serial.begin(115200);
-    delay(7000);  // Allow time to connect serial monitor before boot output
 
     // Kill WiFi/BT radio ASAP — current spikes from the radio modulate
     // the power rail and inject noise into ES8311/ES7210 analog sections.
@@ -33,84 +32,30 @@ void setup() {
     esp_bt_controller_disable();
     esp_bt_controller_deinit();
     esp_bt_mem_release(ESP_BT_MODE_BTDM);
-    Serial.println("Radio: WiFi + BT disabled (audio noise reduction)");
 
-    Serial.println("\n=== Tombogo Collab Gadget v0.3 ===");
-    Serial.println("Platform: ESP32-S3 (Waveshare AMOLED)");
-
-    // Force PSRAM initialization and detection FIRST
+    // Force PSRAM initialization if not auto-detected (silent unless it fails)
     if (ESP.getPsramSize() == 0) {
-        Serial.println("PSRAM: Detecting...");
         esp_err_t err = esp_spiram_init();
-        if (err == ESP_OK) {
-            uint32_t psramSize = esp_spiram_get_size();
-            Serial.printf("PSRAM: Initialized - %u bytes\n", psramSize);
-        } else {
-            Serial.printf("PSRAM: Init failed (0x%x) - buffer allocation will fail\n", err);
+        if (err != ESP_OK) {
+            Serial.printf("PSRAM: init failed (0x%x)\n", err);
         }
-    } else {
-        Serial.printf("PSRAM: %u bytes available\n", ESP.getPsramSize());
     }
-    Serial.printf("PSRAM status: %u bytes free, %u total\n",
-                   ESP.getFreePsram(), ESP.getPsramSize());
-    Serial.println("Setup starting...");
 
-    // Initialize hardware abstraction layer
     HAL_init();
-    Serial.printf("  After HAL init   - Heap: %u, PSRAM: %u\n",
-                   ESP.getFreeHeap(), ESP.getFreePsram());
-
-    // Initialize storage (SD card)
     StorageHAL_init();
-    Serial.printf("  After storage    - Heap: %u, PSRAM: %u\n",
-                   ESP.getFreeHeap(), ESP.getFreePsram());
-
-    // Initialize audio engine (includes retroactive buffer)
     AudioEngine_init();
-    Serial.printf("  After audio      - Heap: %u, PSRAM: %u\n",
-                   ESP.getFreeHeap(), ESP.getFreePsram());
-
-    // Initialize stage manager
     StageManager_init();
-    Serial.printf("  After stage      - Heap: %u, PSRAM: %u\n",
-                   ESP.getFreeHeap(), ESP.getFreePsram());
-
-    // Initialize BPM clock
     BPMClock_init(120);
     BPMClock_start();
-    Serial.printf("  After BPM clock  - Heap: %u, PSRAM: %u\n",
-                   ESP.getFreeHeap(), ESP.getFreePsram());
-
-    // Initialize UI
     UIManager_init();
-    Serial.printf("  After UI         - Heap: %u, PSRAM: %u\n",
-                   ESP.getFreeHeap(), ESP.getFreePsram());
-
-    // Start input task (Core 0, 10ms polling)
     InputTask_start();
-    Serial.printf("  After input      - Heap: %u, PSRAM: %u\n",
-                   ESP.getFreeHeap(), ESP.getFreePsram());
 
-    // Start audio hardware (enables PA, ES8311, ES7210)
+    // Audio hardware + task — task must start so DMA stays fed (legacy IDF
+    // 4.4.7 stops BCLK/WS once pre-filled zero buffers drain).
     AudioHAL_start();
-
-    // Start audio task on Core 1 BEFORE diagnostic — the audio task keeps the
-    // I2S DMA continuously fed with i2s_write() calls, which is the only thing
-    // that keeps BCLK/WS toggling in the legacy ESP-IDF 4.4.7 driver.
-    // Without the task running, the pre-filled DMA zero buffers drain and the
-    // clocks stop, giving false "NOT TOGGLING" results in the diagnostic.
     AudioEngine_startTask();
 
-    // Let the audio task stabilize (fill DMA buffers and establish steady clocks)
-    delay(200);
-    AudioHAL_runDiagnostic();
-    Serial.printf("  After audio task - Heap: %u, PSRAM: %u\n",
-                   ESP.getFreeHeap(), ESP.getFreePsram());
-
-    // Test tone disabled (uncomment to test speaker/DAC path)
-    // AudioEngine_playTestTone();
-
-    Serial.println("\n=== Ready! ===");
+    Serial.println("Ready");
 }
 
 void loop() {

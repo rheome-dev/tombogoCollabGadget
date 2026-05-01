@@ -59,11 +59,17 @@ static void enterStage(Stage stage) {
             break;
 
         case STAGE_CAPTURE_REVIEW:
-            AudioEngine_triggerCapture();
-            RetroactiveBuffer_startPlayback();
-            AudioEngine_setPlaying(true);
-            pitchSemitones = 0;
-            barWindowIdx = 1;
+            // Only re-capture and reset playback when arriving fresh from IDLE.
+            // Navigating back from CHOP/RESONATE keeps the existing loop playing
+            // uninterrupted — re-triggering capture here would freeze a silent
+            // buffer because playback (not recording) is what's been running.
+            if (previousStage == STAGE_IDLE) {
+                AudioEngine_triggerCapture();
+                RetroactiveBuffer_startPlayback();
+                AudioEngine_setPlaying(true);
+                pitchSemitones = 0;
+                barWindowIdx = 1;
+            }
             break;
 
         case STAGE_CHOP: {
