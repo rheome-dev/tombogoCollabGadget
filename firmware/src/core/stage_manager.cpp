@@ -11,6 +11,7 @@
 #include "retroactive_buffer.h"
 #include "bpm_clock.h"
 #include "../audio/chop_engine.h"
+#include "../audio/transient_detector.h"
 #include <Arduino.h>
 
 // ─── State ──────────────────────────────────────────────────────────────────
@@ -65,11 +66,41 @@ static void enterStage(Stage stage) {
             barWindowIdx = 1;
             break;
 
-        case STAGE_CHOP:
+        case STAGE_CHOP: {
+            const int16_t* captured = RetroactiveBuffer_getCaptured();
+            uint32_t capturedLen = RetroactiveBuffer_getCapturedLength();
+
+            static TransientResult sliceResult;
+            sliceResult.count = 0;
+            sliceResult.detected = false;
+
+            if (captured && capturedLen >= (uint32_t)(SAMPLE_RATE / 2)) {
+                TransientDetector_detect(captured, capturedLen, &sliceResult);
+
+                if (!sliceResult.detected || sliceResult.count < MIN_SLICES) {
+                    uint16_t bpm = BPMClock_getBPM();
+                    if (bpm < 60) bpm = 120;
+                    uint32_t barSamples = (uint32_t)SAMPLE_RATE * 60 / bpm * 4;
+                    TransientDetector_gridFallback(capturedLen, barSamples, &sliceResult);
+                }
+
+                if (sliceResult.count > 0) {
+                    ChopEngine_setSlices(sliceResult.slices, sliceResult.count);
+                    Serial.printf("[CHOP] Loaded %u slices (%s)\n",
+                                  sliceResult.count,
+                                  sliceResult.detected ? "transients" : "grid");
+                } else {
+                    Serial.println("[CHOP] No slices generated — chop will be silent");
+                }
+            } else {
+                Serial.println("[CHOP] No captured audio — chop will be silent");
+            }
+
             chopEnabled = true;
             AudioEngine_setChopEnabled(true);
             AudioEngine_setDensity(chopDensity);
             break;
+        }
 
         case STAGE_RESONATE:
             resonatorEnabled = true;
