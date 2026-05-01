@@ -54,13 +54,14 @@ void Resonator_init(void) {
     //   fHslider4 = Input Trim      fHslider9 = Timbre
     //   fEntry0 = Voicing Index     fEntry1 = Chord Grid
     //
-    // Gain staging: the looper feeds at near full-scale, mode filters amplify
-    // resonant frequencies 10–100×. Saturation has been removed in the .dsp
-    // (drive is now pure linear gain), so input_trim is the primary headroom
-    // knob — keep it low to prevent the final hard [-1, 1] clamp from clipping.
-    g_dsp->fHslider4 = 0.10f;   // Input Trim
-    g_dsp->fHslider5 = 1.0f;    // Drive (no saturation, just linear)
-    g_dsp->fHslider3 = 0.4f;    // Resonator Trim
+    // Gain staging: with saturation removed, the only nonlinearity is the
+    // final hard [-1, 1] clamp at the end of process_channel. At mix=1.0 the
+    // dry path is silenced (cos(pi/2)=0) so the wet path can use the full
+    // headroom — bump wet_trim and input_trim from the originally-conservative
+    // anti-saturation values so a fully-wet loop matches dry loudness.
+    g_dsp->fHslider4 = 0.18f;   // Input Trim — feeds engine_A, was 0.10
+    g_dsp->fHslider5 = 1.0f;    // Drive (linear, no saturation)
+    g_dsp->fHslider3 = 1.6f;    // Resonator Trim — wet makeup, was 0.4
     g_dsp->fHslider2 = 0.0f;    // Dry/Wet — start dry, audio_engine ramps it
     g_dsp->fHslider1 = 1.0f;    // Output Gain
     g_dsp->fHslider0 = 0.0f;    // Reverb Mix — OFF by default
