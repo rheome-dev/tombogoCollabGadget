@@ -113,6 +113,13 @@ void RetroactiveBuffer_clear() {
     if (capturedLoop) {
         memset(capturedLoop, 0, bufferSize * sizeof(int16_t));
     }
+    // Also wipe the rolling circular buffer — otherwise a re-capture pulls in
+    // stale content from before the clear (including speaker bleed of the old
+    // loop that the mic was picking up while it played back).
+    if (circularBuffer) {
+        memset(circularBuffer, 0, bufferSize * sizeof(int16_t));
+    }
+    writeIndex = 0;
     capturedLength = 0;
     hasCapture = false;
     isPlaying = false;
