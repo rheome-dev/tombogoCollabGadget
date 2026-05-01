@@ -40,6 +40,12 @@ static const uint8_t barWindows[] = {1, 2, 4, 8};
 static uint8_t masterVolume = 80;
 #define VOLUME_STEP 5
 
+// Set true when a new capture is taken. Consumed on the next entry to
+// STAGE_CHOP to randomize density once per capture (so the chopper doesn't
+// sound the same every session). Subsequent navigations into chop preserve
+// whatever density the user dialed in.
+static bool chopDensityNeedsRandomize = false;
+
 // ─── Stage Transitions ──────────────────────────────────────────────────────
 
 static void enterStage(Stage stage) {
@@ -74,6 +80,7 @@ static void enterStage(Stage stage) {
                 AudioEngine_setPlaying(true);
                 pitchSemitones = 0;
                 barWindowIdx = 1;
+                chopDensityNeedsRandomize = true;
             }
             break;
 
@@ -105,6 +112,15 @@ static void enterStage(Stage stage) {
                 }
             } else {
                 Serial.println("[CHOP] No captured audio — chop will be silent");
+            }
+
+            if (chopDensityNeedsRandomize) {
+                // Random density in [0.2, 0.9] — wide enough to feel different,
+                // tight enough to avoid extremes that sound broken (all-off or
+                // wall-of-pulses).
+                chopDensity = 0.2f + ((float)(rand() % 1000) / 1000.0f) * 0.7f;
+                chopDensityNeedsRandomize = false;
+                Serial.printf("[CHOP] First entry — randomized density to %.2f\n", chopDensity);
             }
 
             chopEnabled = true;
