@@ -166,7 +166,8 @@ static void processButton(uint8_t btnIdx, bool pressed, uint32_t now) {
             // can read live shift state. Otherwise the click-resolution delay
             // (DOUBLECLICK_MS = 300ms) means shift is usually released by the
             // time the press event reaches the consumer.
-            if (shiftPhysicallyHeld && btnIdx != 4) {
+            // Skip btnIdx 5 (BTN_3) — it IS the shift button.
+            if (shiftPhysicallyHeld && btnIdx != 5) {
                 pushEvent(EVT_BUTTON_PRESS, btnIdx);
                 bs->shiftPressFired = true;
             }
@@ -353,16 +354,16 @@ const InputMsg* MCPInput_poll(void) {
     bool btn2 = !(gpioA & (1 << MCP_BTN_2));
     bool btn3 = !(gpioA & (1 << MCP_BTN_3));
 
-    // Update shiftPhysicallyHeld BEFORE processing other buttons so press-down
-    // sees the current shift state (used to fire shift+button immediately).
-    shiftPhysicallyHeld = btn2;
+    // BTN_3 (bottom) is the shift button. Update shiftPhysicallyHeld BEFORE
+    // processing other buttons so press-down sees the current shift state.
+    shiftPhysicallyHeld = btn3;
 
     processButton(3, btn1, now);  // buttonStates[3] = BTN_1
     processButton(4, btn2, now);  // buttonStates[4] = BTN_2
-    processButton(5, btn3, now);  // buttonStates[5] = BTN_3
+    processButton(5, btn3, now);  // buttonStates[5] = BTN_3 (shift)
 
-    // Update shift state machine (toggle/latch tracking) from BTN_2
-    updateShiftState(btn2, now);
+    // Update shift state machine (toggle/latch tracking) from BTN_3
+    updateShiftState(btn3, now);
 
     // Process joystick (PB3-PB7) — active low, EDGE DETECTION
     bool joyStates[5] = {

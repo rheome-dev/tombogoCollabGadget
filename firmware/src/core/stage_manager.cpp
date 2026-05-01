@@ -271,7 +271,7 @@ void StageManager_handleInput(const InputMsg* msg) {
     if (!msg || msg->type == EVT_NONE) return;
 
     // Loop clear gestures (work in any stage):
-    //   - Shift+Capture: hold BTN_2 while pressing BTN_1
+    //   - Shift+Capture: hold BTN_3 (bottom = shift) while pressing BTN_1
     //   - Long-press Capture: hold BTN_1 for ~500ms (no shift required)
     if (msg->type == EVT_BUTTON_PRESS && msg->id == INPUT_BTN_1) {
         if (MCPInput_isShiftHeld()) {
@@ -287,20 +287,16 @@ void StageManager_handleInput(const InputMsg* msg) {
     }
 
     // Shift+Encoder: master volume (works in any stage)
-    if (msg->type == EVT_ENCODER_CW || msg->type == EVT_ENCODER_CCW) {
-        bool shift = MCPInput_isShiftHeld();
-        Serial.printf("[ENC] %s shift=%d\n",
-                      msg->type == EVT_ENCODER_CW ? "CW" : "CCW", shift ? 1 : 0);
-        if (shift) {
-            if (msg->type == EVT_ENCODER_CW) {
-                masterVolume = (masterVolume <= 100 - VOLUME_STEP) ? masterVolume + VOLUME_STEP : 100;
-            } else {
-                masterVolume = (masterVolume >= VOLUME_STEP) ? masterVolume - VOLUME_STEP : 0;
-            }
-            AudioEngine_setVolume(masterVolume);
-            Serial.printf("[VOL] %u\n", masterVolume);
-            return;
+    if (MCPInput_isShiftHeld() &&
+        (msg->type == EVT_ENCODER_CW || msg->type == EVT_ENCODER_CCW)) {
+        if (msg->type == EVT_ENCODER_CW) {
+            masterVolume = (masterVolume <= 100 - VOLUME_STEP) ? masterVolume + VOLUME_STEP : 100;
+        } else {
+            masterVolume = (masterVolume >= VOLUME_STEP) ? masterVolume - VOLUME_STEP : 0;
         }
+        AudioEngine_setVolume(masterVolume);
+        Serial.printf("[VOL] %u\n", masterVolume);
+        return;
     }
 
     switch (currentStage) {
