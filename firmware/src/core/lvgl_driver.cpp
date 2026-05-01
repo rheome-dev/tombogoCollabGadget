@@ -62,17 +62,37 @@ static void disp_flush_cb(lv_disp_drv_t* drv, const lv_area_t* area, lv_color_t*
 }
 
 /**
- * Touch input read callback - called by LVGL to get touch state
+ * Touch input read callback - called by LVGL to get touch state.
+ *
+ * IMPORTANT: TouchHAL_getCount() is what actually polls the I2C controller and
+ * refreshes the cached point array. TouchHAL_getPoint() only reads from that
+ * cache, so we must call getCount() first or LVGL will never see touch.
  */
 static void touch_read_cb(lv_indev_drv_t* drv, lv_indev_data_t* data) {
+    static bool wasPressed = false;
+
+    if (!TouchHAL_isReady()) {
+        data->state = LV_INDEV_STATE_REL;
+        wasPressed = false;
+        return;
+    }
+
+    uint8_t count = TouchHAL_getCount();
     TouchPoint point;
 
-    if (TouchHAL_isReady() && TouchHAL_getPoint(0, &point) && point.pressed) {
+    if (count > 0 && TouchHAL_getPoint(0, &point) && point.pressed) {
         data->state = LV_INDEV_STATE_PR;
         data->point.x = point.x;
         data->point.y = point.y;
+
+        if (!wasPressed) {
+            Serial.printf("[TOUCH] press x=%d y=%d (count=%u)\n",
+                          point.x, point.y, count);
+            wasPressed = true;
+        }
     } else {
         data->state = LV_INDEV_STATE_REL;
+        wasPressed = false;
     }
 }
 

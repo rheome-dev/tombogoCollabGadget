@@ -67,6 +67,7 @@ static void chord_pressed_cb(lv_event_t* e) {
     lv_obj_t* obj = lv_event_get_target(e);
     uint8_t idx = (uint8_t)(uintptr_t)lv_obj_get_user_data(obj);
     if (idx > 15) return;
+    Serial.printf("[ResonateView] chord %u pressed\n", idx);
     StageManager_requestChord(idx);
 }
 
