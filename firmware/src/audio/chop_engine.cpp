@@ -44,10 +44,26 @@ static void bjorklund(uint8_t pulses, uint8_t steps, bool* pattern) {
 }
 
 static uint8_t randomPlaybackType(void) {
+    // Weights tuned by ear: ratchets were over-emphasized at 8% because the
+    // fill cycle re-rolls types frequently → low per-roll weight is needed
+    // to keep them rare-and-special instead of constant.
     uint8_t r = rand() % 100;
-    if (r < 77) return PLAY_NORMAL;
-    if (r < 92) return PLAY_REVERSE;
-    return PLAY_RATCHET;
+    if (r < 82) return PLAY_NORMAL;
+    if (r < 97) return PLAY_REVERSE;
+    return PLAY_RATCHET;  // 3%
+}
+
+// Walk a freshly-rolled per-step playback type array and demote any ratchets
+// past the first one to PLAY_NORMAL. Keeps ratchets a deliberate-feeling
+// punctuation rather than a random sprinkle across the bar.
+static void capRatchets(uint8_t* types, uint8_t steps) {
+    bool seen = false;
+    for (uint8_t i = 0; i < steps; i++) {
+        if (types[i] == PLAY_RATCHET) {
+            if (seen) types[i] = PLAY_NORMAL;
+            else      seen = true;
+        }
+    }
 }
 
 // Read a slice from the captured loop buffer, applying playback type
@@ -149,6 +165,7 @@ void ChopEngine_init(void) {
     for (uint8_t i = 0; i < state.steps; i++) {
         state.playbackType[i] = state.pattern[i] ? randomPlaybackType() : (uint8_t)PLAY_NORMAL;
     }
+    capRatchets(state.playbackType, state.steps);
     memcpy(state.basePattern, state.pattern, state.steps);
     memcpy(state.basePlaybackType, state.playbackType, state.steps);
 }
@@ -183,6 +200,7 @@ void ChopEngine_setDensity(float density) {
             state.playbackType[i] = PLAY_NORMAL;
         }
     }
+    capRatchets(state.playbackType, state.steps);
 
     // Sync base — fills overlay this and snap back to it.
     memcpy(state.basePattern, state.pattern, state.steps);
@@ -230,7 +248,9 @@ void ChopEngine_process(const int16_t* input, int16_t* output,
             // the base pattern so the fill doesn't leak into subsequent cycles.
             if (state.currentStep == 0) {
                 state.cycleCount++;
-                bool shouldFill = (state.cycleCount % 4 == 0);
+                // Fill every 8th cycle (was 4) so the base pattern has more
+                // time to feel established before being disrupted.
+                bool shouldFill = (state.cycleCount % 8 == 0);
                 if (shouldFill) {
                     uint8_t rot = 1 + (rand() % (state.steps - 1));
                     for (uint8_t s = 0; s < state.steps; s++) {
@@ -240,6 +260,7 @@ void ChopEngine_process(const int16_t* input, int16_t* output,
                             ? randomPlaybackType()
                             : (uint8_t)PLAY_NORMAL;
                     }
+                    capRatchets(state.playbackType, state.steps);
                     state.fillActive = true;
                 } else if (state.fillActive) {
                     memcpy(state.pattern, state.basePattern, state.steps);
@@ -313,6 +334,7 @@ void ChopEngine_randomize(void) {
         newPattern[i] = state.pattern[src];
         newTypes[i]   = state.pattern[src] ? randomPlaybackType() : (uint8_t)PLAY_NORMAL;
     }
+    capRatchets(newTypes, state.steps);
     memcpy(state.pattern, newPattern, state.steps);
     memcpy(state.playbackType, newTypes, state.steps);
     memcpy(state.basePattern, newPattern, state.steps);

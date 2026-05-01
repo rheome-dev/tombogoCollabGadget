@@ -25,6 +25,15 @@
 // on STAGE_CHOP entry, serialized through the input handler.
 static float rmsFrames[MAX_RMS_FRAMES];
 
+// Pre-emphasis coefficient for transient detection. y[n] = x[n] - α·x[n-1]
+// is a 1-pole HPF that boosts HF content (where percussive transients live)
+// and attenuates the LF rumble that was biasing onset detection toward
+// non-musical low-frequency energy. α=0.97 → ~+6 dB/oct above ~80 Hz.
+#define PREEMPH_ALPHA 0.97f
+
+// Persistent x[n-1] across frame boundaries so the filter is continuous.
+static float preemphPrev = 0.0f;
+
 static void computeRMSFrame(const int16_t* buffer, uint32_t length,
                              uint32_t frameIdx, float* rmsOut) {
     uint32_t start = frameIdx * RMS_FRAME_SIZE;
@@ -40,8 +49,10 @@ static void computeRMSFrame(const int16_t* buffer, uint32_t length,
 
     int64_t sumSquares = 0;
     for (uint32_t i = 0; i < count; i++) {
-        int32_t s = buffer[start + i];
-        sumSquares += (int64_t)s * s;
+        float x = (float)buffer[start + i];
+        float y = x - PREEMPH_ALPHA * preemphPrev;
+        preemphPrev = x;
+        sumSquares += (int64_t)(y * y);
     }
 
     float rms = sqrtf((float)sumSquares / count);
@@ -53,6 +64,10 @@ void TransientDetector_detect(const int16_t* buffer, uint32_t length,
     memset(result, 0, sizeof(TransientResult));
 
     if (!buffer || length < RMS_FRAME_SIZE) return;
+
+    // Reset pre-emphasis filter state — each detection run is independent of
+    // any prior buffer.
+    preemphPrev = 0.0f;
 
     // Compute number of RMS frames
     uint32_t numFrames = length / RMS_FRAME_SIZE;

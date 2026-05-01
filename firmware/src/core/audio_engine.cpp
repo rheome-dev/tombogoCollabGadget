@@ -155,13 +155,29 @@ void AudioEngine_process() {
         // normal speech into a usable range. Tune empirically: too high → clipping,
         // too low → quiet recording. Audio quality (timbre, fidelity) is set by
         // the I2S/MCLK config in audio_esp32.cpp, not this gain.
+        //
+        // 1-pole DC blocker after gain: y[n] = x[n] - x[n-1] + R*y[n-1].
+        // R=0.995 → -3 dB at ~12 Hz @ 16 kHz. Removes codec DC offset and
+        // sub-audible rumble that was biasing chopper transient detection
+        // toward LF energy. State persists across frames.
+        static float dcX1 = 0.0f;
+        static float dcY1 = 0.0f;
+        const float dcR = 0.995f;
         for (uint32_t i = 0; i < monoCount; i++) {
             int32_t L = i2sReadBuf[i * 2];
             int32_t R = i2sReadBuf[i * 2 + 1];
             int32_t mono = ((L + R) / 2) * 4;
             if (mono > 32767)  mono = 32767;
             if (mono < -32768) mono = -32768;
-            monoMic[i] = (int16_t)mono;
+
+            float x = (float)mono;
+            float y = x - dcX1 + dcR * dcY1;
+            dcX1 = x;
+            dcY1 = y;
+            int32_t blocked = (int32_t)y;
+            if (blocked > 32767)  blocked = 32767;
+            if (blocked < -32768) blocked = -32768;
+            monoMic[i] = (int16_t)blocked;
         }
     } else {
         // No mic data — fill with silence
@@ -254,6 +270,30 @@ void AudioEngine_process() {
         if (s > 32767)  s = 32767;
         if (s < -32768) s = -32768;
         monoOut[i] = (int16_t)s;
+    }
+
+    // Peak limiter — final ceiling at ~-1.3 dBFS (28000) so the int16 hard
+    // clamp above never engages on transients or hot resonator output.
+    // Single-sided gain reduction: target = threshold/|sample| when over,
+    // 1.0 otherwise. Attack ~5ms (fast clamp on transients) / release ~80ms
+    // (slow recovery to avoid pumping). Coefficients precomputed at SAMPLE_RATE.
+    {
+        static float limGain = 1.0f;
+        const int32_t threshold = 28000;
+        const float   attackCoef  = 1.0f - expf(-1.0f / (0.005f * (float)SAMPLE_RATE));
+        const float   releaseCoef = 1.0f - expf(-1.0f / (0.080f * (float)SAMPLE_RATE));
+        for (uint32_t i = 0; i < monoCount; i++) {
+            int32_t s = monoOut[i];
+            int32_t a = s < 0 ? -s : s;
+            float target = 1.0f;
+            if (a > threshold) target = (float)threshold / (float)a;
+            float coef = (target < limGain) ? attackCoef : releaseCoef;
+            limGain += (target - limGain) * coef;
+            int32_t out = (int32_t)((float)s * limGain);
+            if (out > 32767)  out = 32767;
+            if (out < -32768) out = -32768;
+            monoOut[i] = (int16_t)out;
+        }
     }
 
     // Duplicate mono to stereo for I2S output
