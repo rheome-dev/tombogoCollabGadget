@@ -12,6 +12,7 @@
 #include "bpm_clock.h"
 #include "../audio/chop_engine.h"
 #include "../audio/transient_detector.h"
+#include "../input/mcp_input.h"
 #include <Arduino.h>
 
 // ─── State ──────────────────────────────────────────────────────────────────
@@ -34,6 +35,10 @@ static bool resonatorEnabled = false;
 
 static const uint8_t barWindows[] = {1, 2, 4, 8};
 #define NUM_BAR_WINDOWS 4
+
+// Master volume (0-100). Adjusted by shift+encoder in any stage.
+static uint8_t masterVolume = 80;
+#define VOLUME_STEP 5
 
 // ─── Stage Transitions ──────────────────────────────────────────────────────
 
@@ -262,6 +267,19 @@ void StageManager_handleInput(const InputMsg* msg) {
     if (msg->type == EVT_BUTTON_LONG && msg->id == INPUT_BTN_1) {
         Serial.println("[CLEAR] Long-press Capture → loop cleared");
         enterStage(STAGE_IDLE);
+        return;
+    }
+
+    // Shift+Encoder: master volume (works in any stage)
+    if (MCPInput_isShiftHeld() &&
+        (msg->type == EVT_ENCODER_CW || msg->type == EVT_ENCODER_CCW)) {
+        if (msg->type == EVT_ENCODER_CW) {
+            masterVolume = (masterVolume <= 100 - VOLUME_STEP) ? masterVolume + VOLUME_STEP : 100;
+        } else {
+            masterVolume = (masterVolume >= VOLUME_STEP) ? masterVolume - VOLUME_STEP : 0;
+        }
+        AudioEngine_setVolume(masterVolume);
+        Serial.printf("[VOL] %u\n", masterVolume);
         return;
     }
 

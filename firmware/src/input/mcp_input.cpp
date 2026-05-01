@@ -51,6 +51,7 @@ typedef struct {
     bool     longFired;       // long-press already emitted
     uint8_t  clickCount;      // clicks within double-click window
     uint32_t firstClickMs;    // timestamp of first click in sequence
+    bool     shiftPressFired; // shift+button fired immediately on press-down
 } ButtonState;
 
 static ButtonState buttonStates[6];  // enc_sw, enc_a, enc_b, btn1, btn2, btn3
@@ -159,6 +160,16 @@ static void processButton(uint8_t btnIdx, bool pressed, uint32_t now) {
             // Button just pressed
             bs->pressStartMs = now;
             bs->longFired = false;
+            bs->shiftPressFired = false;
+
+            // Shift+button: fire press IMMEDIATELY at press-down so handlers
+            // can read live shift state. Otherwise the click-resolution delay
+            // (DOUBLECLICK_MS = 300ms) means shift is usually released by the
+            // time the press event reaches the consumer.
+            if (shiftPhysicallyHeld && btnIdx != 4) {
+                pushEvent(EVT_BUTTON_PRESS, btnIdx);
+                bs->shiftPressFired = true;
+            }
         } else {
             // Button just released
             pushEvent(EVT_BUTTON_RELEASE, btnIdx);
@@ -166,6 +177,13 @@ static void processButton(uint8_t btnIdx, bool pressed, uint32_t now) {
             if (bs->longFired) {
                 // Long press release — don't fire click
                 bs->longFired = false;
+                bs->clickCount = 0;
+                return;
+            }
+
+            if (bs->shiftPressFired) {
+                // Press already fired at down-edge — suppress click resolution
+                bs->shiftPressFired = false;
                 bs->clickCount = 0;
                 return;
             }
@@ -210,8 +228,11 @@ static void processButton(uint8_t btnIdx, bool pressed, uint32_t now) {
 
 // Update shift state machine based on BTN_2 (PA4) events
 static void updateShiftState(bool btn2Pressed, uint32_t now) {
-    bool wasHeld = shiftPhysicallyHeld;
-    shiftPhysicallyHeld = btn2Pressed;
+    // shiftPhysicallyHeld is updated by the caller before this runs; here we
+    // only maintain the toggle/latch state machine.
+    static bool wasHeldLast = false;
+    bool wasHeld = wasHeldLast;
+    wasHeldLast = btn2Pressed;
 
     if (btn2Pressed && !wasHeld) {
         // Shift just pressed
@@ -282,6 +303,7 @@ bool MCPInput_init(void) {
         buttonStates[i].longFired = false;
         buttonStates[i].clickCount = 0;
         buttonStates[i].firstClickMs = 0;
+        buttonStates[i].shiftPressFired = false;
     }
 
     // Initialize joystick previous state
@@ -330,11 +352,16 @@ const InputMsg* MCPInput_poll(void) {
     bool btn1 = !(gpioA & (1 << MCP_BTN_1));
     bool btn2 = !(gpioA & (1 << MCP_BTN_2));
     bool btn3 = !(gpioA & (1 << MCP_BTN_3));
+
+    // Update shiftPhysicallyHeld BEFORE processing other buttons so press-down
+    // sees the current shift state (used to fire shift+button immediately).
+    shiftPhysicallyHeld = btn2;
+
     processButton(3, btn1, now);  // buttonStates[3] = BTN_1
     processButton(4, btn2, now);  // buttonStates[4] = BTN_2
     processButton(5, btn3, now);  // buttonStates[5] = BTN_3
 
-    // Update shift state from BTN_2
+    // Update shift state machine (toggle/latch tracking) from BTN_2
     updateShiftState(btn2, now);
 
     // Process joystick (PB3-PB7) — active low, EDGE DETECTION
