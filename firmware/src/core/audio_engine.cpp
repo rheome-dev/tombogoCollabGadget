@@ -329,5 +329,8 @@ void AudioEngine_setPitch(int8_t semitones) {
     if (semitones > 12) semitones = 12;
     pitchSemitones = semitones;
     pitchReadIncrement = powf(2.0f, (float)semitones / 12.0f);
+    // Mirror the pitch rate into the chop engine so chopped slices track the
+    // captured loop's pitch shift instead of always playing at original rate.
+    ChopEngine_setPitchRate(pitchReadIncrement);
     Serial.printf("AudioEngine: Pitch %+d semitones (rate %.3f)\n", semitones, pitchReadIncrement);
 }

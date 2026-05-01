@@ -134,6 +134,7 @@ void ChopEngine_init(void) {
     state.currentStep = 0;
     state.stepSamples = 2000;
     state.sampleCounter = 0;
+    state.pitchRate = 1.0f;
 
     // Compute the initial Euclidean pattern so the engine isn't silent the
     // first time it's enabled at the default density (otherwise setDensity()
@@ -223,16 +224,18 @@ void ChopEngine_process(const int16_t* input, int16_t* output,
             uint32_t sLen = state.slices[sliceIdx].sliceLength;
             if (sLen == 0) sLen = state.stepSamples;
 
-            // Position within current step
+            // Position within current step, scaled by pitchRate so chopped
+            // output tracks the loop's pitch shift (chipmunk when pitched up).
             uint32_t posInStep = state.sampleCounter;
+            uint32_t srcOffset = (uint32_t)((float)posInStep * state.pitchRate);
             uint32_t idx;
             uint8_t ptype = state.playbackType[state.currentStep];
 
             if (ptype == PLAY_REVERSE) {
-                uint32_t reversePos = (sLen > 0) ? (sLen - 1 - (posInStep % sLen)) : 0;
+                uint32_t reversePos = (sLen > 0) ? (sLen - 1 - (srcOffset % sLen)) : 0;
                 idx = (sliceStart + reversePos) % loopLen;
             } else {
-                idx = (sliceStart + (posInStep % sLen)) % loopLen;
+                idx = (sliceStart + (srcOffset % sLen)) % loopLen;
             }
 
             int16_t sample = loopBuf[idx];
@@ -247,7 +250,8 @@ void ChopEngine_process(const int16_t* input, int16_t* output,
                 uint32_t halfStep = state.stepSamples / 2;
                 if (halfStep > 0) {
                     uint32_t ratchetPos = posInStep % halfStep;
-                    idx = (sliceStart + (ratchetPos % sLen)) % loopLen;
+                    uint32_t ratchetSrc = (uint32_t)((float)ratchetPos * state.pitchRate);
+                    idx = (sliceStart + (ratchetSrc % sLen)) % loopLen;
                     sample = loopBuf[idx];
                     if (ratchetPos < ATTACK_RAMP_SAMPLES) {
                         sample = (int16_t)((int32_t)sample * ratchetPos / ATTACK_RAMP_SAMPLES);
@@ -265,12 +269,26 @@ void ChopEngine_process(const int16_t* input, int16_t* output,
 }
 
 void ChopEngine_randomize(void) {
+    // Rotate the pattern by a random non-zero offset so different slices land
+    // on different beats — this is what makes the change audibly obvious.
+    // Re-rolling playback types alone (the previous behavior) was too subtle.
+    uint8_t rot = 1 + (rand() % (state.steps - 1));
+    bool    newPattern[16];
+    uint8_t newTypes[16];
     for (uint8_t i = 0; i < state.steps; i++) {
-        if (state.pattern[i]) {
-            state.playbackType[i] = randomPlaybackType();
-        }
+        uint8_t src = (i + rot) % state.steps;
+        newPattern[i] = state.pattern[src];
+        newTypes[i]   = state.pattern[src] ? randomPlaybackType() : (uint8_t)PLAY_NORMAL;
     }
-    Serial.println("ChopEngine: Pattern randomized");
+    memcpy(state.pattern, newPattern, state.steps);
+    memcpy(state.playbackType, newTypes, state.steps);
+    Serial.printf("ChopEngine: Pattern randomized (rot=%u)\n", rot);
+}
+
+void ChopEngine_setPitchRate(float rate) {
+    if (rate < 0.25f) rate = 0.25f;
+    if (rate > 4.0f)  rate = 4.0f;
+    state.pitchRate = rate;
 }
 
 uint8_t ChopEngine_getCurrentStep(void) {

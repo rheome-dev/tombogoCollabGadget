@@ -48,6 +48,9 @@ typedef struct {
     // Crossfade
     bool          fadeOut;           // True = fading out
     uint16_t      fadeSamples;       // Fade duration in samples
+
+    // Pitch shift: source-read scaling. 1.0 = original pitch, 2.0 = octave up.
+    float         pitchRate;
 } ChopState;
 
 // ─── API ─────────────────────────────────────────────────────────────────────
@@ -86,10 +89,17 @@ void ChopEngine_process(const int16_t* input, int16_t* output,
                          uint32_t samples, uint32_t sliceLen);
 
 /**
- * Randomize playback types for all active steps.
- * Called on joystick center.
+ * Randomize playback types for all active steps AND rotate the pattern by a
+ * random offset so different slices land on different beats. Called on joystick
+ * center — the rotation is what makes the change audibly obvious.
  */
 void ChopEngine_randomize(void);
+
+/**
+ * Set pitch rate (1.0 = original, 2.0 = octave up, 0.5 = octave down).
+ * Applied to slice source reads so chopped output tracks loop pitch shift.
+ */
+void ChopEngine_setPitchRate(float rate);
 
 /**
  * Get current step for visualization (0-15).

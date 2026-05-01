@@ -58,6 +58,15 @@ static ButtonState buttonStates[6];  // enc_sw, enc_a, enc_b, btn1, btn2, btn3
 // Joystick previous state for edge detection
 static bool lastJoyState[5] = {false, false, false, false, false};
 
+// Joystick center debouncing: 5-way tact switches inevitably trigger an
+// adjacent direction when pressing center. We defer directional emissions
+// by JOY_DEFER_MS — if center activates within that window, the deferred
+// direction is dropped. Center always fires immediately on its own edge.
+#define JOY_CENTER_IDX 3
+#define JOY_DEFER_MS   30
+static int8_t  pendingDir   = -1;
+static uint32_t pendingDirMs = 0;
+
 // Encoder quadrature
 static int8_t encoderDelta = 0;
 static uint8_t lastEncA = 1;
@@ -344,12 +353,36 @@ const InputMsg* MCPInput_poll(void) {
         INPUT_JOY_UP, INPUT_JOY_LEFT, INPUT_JOY_DOWN, INPUT_JOY_CENTER, INPUT_JOY_RIGHT
     };
 
+    // Detect press edges first
+    bool joyEdges[5];
     for (int i = 0; i < 5; i++) {
-        // Fire only on press edge (was released, now pressed)
-        if (joyStates[i] && !lastJoyState[i]) {
-            pushEvent(joyEvents[i], joyIds[i]);
-        }
+        joyEdges[i] = joyStates[i] && !lastJoyState[i];
         lastJoyState[i] = joyStates[i];
+    }
+
+    // Center: fire immediately on edge, cancel any pending direction
+    if (joyEdges[JOY_CENTER_IDX]) {
+        pushEvent(EVT_JOY_CENTER, INPUT_JOY_CENTER);
+        pendingDir = -1;
+    }
+
+    // Directions: defer emission. If center is currently held, drop the edge
+    // entirely (center is the user's intent). Otherwise, latest direction
+    // wins until the defer window expires.
+    for (int i = 0; i < 5; i++) {
+        if (i == JOY_CENTER_IDX) continue;
+        if (joyEdges[i] && !joyStates[JOY_CENTER_IDX]) {
+            pendingDir   = i;
+            pendingDirMs = now;
+        }
+    }
+
+    // Resolve pending direction once the defer window has elapsed
+    if (pendingDir >= 0 && (now - pendingDirMs) >= JOY_DEFER_MS) {
+        if (!joyStates[JOY_CENTER_IDX]) {
+            pushEvent(joyEvents[pendingDir], joyIds[pendingDir]);
+        }
+        pendingDir = -1;
     }
 
     lastGPIOA = gpioA;
@@ -370,7 +403,10 @@ bool MCPInput_hasInterrupt(void) {
 }
 
 bool MCPInput_isShiftHeld(void) {
-    return shiftMode != SHIFT_OFF;
+    // Report only physical hold state. The toggle/latch state machine is
+    // retained internally but not exposed because a sticky-after-tap shift
+    // makes shift+button combos unpredictable from the user's perspective.
+    return shiftPhysicallyHeld;
 }
 
 int8_t MCPInput_getEncoderDelta(void) {

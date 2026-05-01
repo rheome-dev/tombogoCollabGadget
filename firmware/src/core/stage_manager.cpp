@@ -249,12 +249,20 @@ const char* StageManager_stageName(void) {
 void StageManager_handleInput(const InputMsg* msg) {
     if (!msg || msg->type == EVT_NONE) return;
 
-    // Shift+Capture → reset to IDLE from any stage
+    // Loop clear gestures (work in any stage):
+    //   - Shift+Capture: hold BTN_2 while pressing BTN_1
+    //   - Long-press Capture: hold BTN_1 for ~500ms (no shift required)
     if (msg->type == EVT_BUTTON_PRESS && msg->id == INPUT_BTN_1) {
         if (MCPInput_isShiftHeld()) {
+            Serial.println("[CLEAR] Shift+Capture → loop cleared");
             enterStage(STAGE_IDLE);
             return;
         }
+    }
+    if (msg->type == EVT_BUTTON_LONG && msg->id == INPUT_BTN_1) {
+        Serial.println("[CLEAR] Long-press Capture → loop cleared");
+        enterStage(STAGE_IDLE);
+        return;
     }
 
     switch (currentStage) {
