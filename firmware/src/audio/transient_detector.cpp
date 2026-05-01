@@ -17,6 +17,13 @@
 #define ENVELOPE_ALPHA      0.95f
 // Noise floor (RMS threshold)
 #define NOISE_FLOOR         500  // int16_t RMS units
+// Max RMS frames analyzed (~16s at 16kHz, 256-sample frames)
+#define MAX_RMS_FRAMES      1024
+
+// File-scope to keep this 4KB working buffer off the caller's task stack
+// (InputTask only has 4KB total). Single-threaded use: detection runs only
+// on STAGE_CHOP entry, serialized through the input handler.
+static float rmsFrames[MAX_RMS_FRAMES];
 
 static void computeRMSFrame(const int16_t* buffer, uint32_t length,
                              uint32_t frameIdx, float* rmsOut) {
@@ -50,9 +57,7 @@ void TransientDetector_detect(const int16_t* buffer, uint32_t length,
     // Compute number of RMS frames
     uint32_t numFrames = length / RMS_FRAME_SIZE;
 
-    // 1024 frames covers ~16s at 16kHz with 256-sample frames
-    float rmsFrames[1024];
-    if (numFrames > 1024) numFrames = 1024;
+    if (numFrames > MAX_RMS_FRAMES) numFrames = MAX_RMS_FRAMES;
 
     for (uint32_t f = 0; f < numFrames; f++) {
         computeRMSFrame(buffer, length, f, &rmsFrames[f]);
