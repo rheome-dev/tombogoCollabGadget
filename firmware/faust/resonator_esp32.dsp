@@ -19,17 +19,21 @@ glide  = hslider("5. Chord Glide (s)", 0.5, 0.001, 10.0, 0.01);
 timbre = hslider("6. Timbre Morph", 0.0, 0.0, 2.0, 0.01) : si.smoo;
 
 decay  = hslider("7. Decay Time (s)", 2.0, 0.1, 15.0, 0.01) : si.smoo;
-drive  = hslider("8. Harmonic Drive", 2.0, 1.0, 10.0, 0.1)  : si.smoo;
+drive  = hslider("8. Harmonic Drive", 1.0, 0.1, 4.0, 0.1)  : si.smoo;
 
-input_trim = hslider("9. Input Trim", 0.25, 0.0, 1.0, 0.01) : si.smoo;
+input_trim = hslider("9. Input Trim", 0.10, 0.0, 1.0, 0.01) : si.smoo;
 wet_trim   = hslider("10. Resonator Trim", 0.4, 0.0, 2.0, 0.01) : si.smoo;
 mix        = hslider("11. Dry/Wet Mix", 0.0, 0.0, 1.0, 0.01) : si.smoo;
 gain       = hslider("12. Output Gain", 1.0, 0.0, 4.0, 0.01) : si.smoo;
+reverb_mix = hslider("14. Reverb Mix", 0.0, 0.0, 1.0, 0.01) : si.smoo;
 
 // ================== CORE LOGIC ==================
 slew = si.smooth(ba.tau2pole(glide));
 base_freq = ba.midikey2hz(root_note) : slew;
-saturate(x) = ma.tanh(x * drive);
+// Pre-resonator gain stage. Saturation removed per user preference — this is
+// now a pure linear gain. The Faust output still has a hard [-1, 1] clamp at
+// the end of process_channel, so input_trim is the primary anti-clip knob.
+saturate(x) = x * drive;
 decay_scaler = 1.0 / sqrt(max(1.0, decay));
 
 // ================== 5-VOICE CHORD DICTIONARY ==================
@@ -101,4 +105,7 @@ process_channel(x) =
     : max(-1.0) : min(1.0);
 
 // ================== MAIN EXECUTABLE (mono) ==================
-process = process_channel : re.mono_freeverb(0.5, 0.5, 0.5, 0);
+// Reverb is parallel and parameterized — defaults to 0 (off) so the dry
+// resonator output is unaffected unless reverb_mix is raised.
+reverb = re.mono_freeverb(0.5, 0.5, 0.5, 0);
+process = process_channel <: _ * (1.0 - reverb_mix), reverb * reverb_mix :> _;

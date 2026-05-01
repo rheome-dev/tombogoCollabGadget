@@ -46,13 +46,24 @@ void Resonator_init(void) {
     g_dsp = new (mem) FaustResonator();
     g_dsp->init(SAMPLE_RATE);
 
-    // Sensible defaults — drive a bit lower than the .dsp default so the
-    // looper doesn't immediately clip on entry.
-    g_dsp->fHslider3 = 0.35f;   // Input Trim
-    g_dsp->fHslider4 = 1.5f;    // Drive
-    g_dsp->fHslider2 = 0.6f;    // Resonator Trim
-    g_dsp->fHslider1 = 0.0f;    // Wet/Dry — start dry, audio_engine ramps it
-    g_dsp->fHslider0 = 1.0f;    // Output gain
+    // Slider mapping (after Faust regen with reverb_mix added):
+    //   fHslider0 = Reverb Mix      fHslider5 = Drive
+    //   fHslider1 = Output Gain     fHslider6 = Decay
+    //   fHslider2 = Dry/Wet Mix     fHslider7 = Root Note
+    //   fHslider3 = Resonator Trim  fHslider8 = Chord Glide
+    //   fHslider4 = Input Trim      fHslider9 = Timbre
+    //   fEntry0 = Voicing Index     fEntry1 = Chord Grid
+    //
+    // Gain staging: the looper feeds at near full-scale, mode filters amplify
+    // resonant frequencies 10–100×. Saturation has been removed in the .dsp
+    // (drive is now pure linear gain), so input_trim is the primary headroom
+    // knob — keep it low to prevent the final hard [-1, 1] clamp from clipping.
+    g_dsp->fHslider4 = 0.10f;   // Input Trim
+    g_dsp->fHslider5 = 1.0f;    // Drive (no saturation, just linear)
+    g_dsp->fHslider3 = 0.4f;    // Resonator Trim
+    g_dsp->fHslider2 = 0.0f;    // Dry/Wet — start dry, audio_engine ramps it
+    g_dsp->fHslider1 = 1.0f;    // Output Gain
+    g_dsp->fHslider0 = 0.0f;    // Reverb Mix — OFF by default
 
     Serial.printf("Resonator: initialized (FaustResonator state %u bytes, %s)\n",
                   (unsigned)sizeof(FaustResonator),
@@ -118,28 +129,28 @@ void Resonator_setRootNote(uint8_t midiNote) {
     if (!g_dsp) return;
     if (midiNote < 24) midiNote = 24;
     if (midiNote > 72) midiNote = 72;
-    g_dsp->fHslider6 = (FAUSTFLOAT)midiNote;
+    g_dsp->fHslider7 = (FAUSTFLOAT)midiNote;
 }
 
 void Resonator_setWetDry(float mix) {
     if (!g_dsp) return;
     if (mix < 0.0f) mix = 0.0f;
     if (mix > 1.0f) mix = 1.0f;
-    g_dsp->fHslider1 = (FAUSTFLOAT)mix;
+    g_dsp->fHslider2 = (FAUSTFLOAT)mix;
 }
 
 void Resonator_setTimbre(float t) {
     if (!g_dsp) return;
     if (t < 0.0f) t = 0.0f;
     if (t > 2.0f) t = 2.0f;
-    g_dsp->fHslider8 = (FAUSTFLOAT)t;
+    g_dsp->fHslider9 = (FAUSTFLOAT)t;
 }
 
 void Resonator_setDecay(float seconds) {
     if (!g_dsp) return;
     if (seconds < 0.1f)  seconds = 0.1f;
     if (seconds > 15.0f) seconds = 15.0f;
-    g_dsp->fHslider5 = (FAUSTFLOAT)seconds;
+    g_dsp->fHslider6 = (FAUSTFLOAT)seconds;
 }
 
 void Resonator_setVoicing(uint8_t v) {
