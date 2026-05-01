@@ -37,6 +37,179 @@ gfx = new Arduino_CO5300(
 
 ## Audio
 
+> **READ THIS SECTION FIRST.** The "ES7210 Init Order" finding directly below
+> is the **single most load-bearing piece** of getting microphone capture
+> working on this board. Earlier findings in this document describe partial
+> fixes, dead-ends, and one outright wrong claim ("ESP32-S3 has no APLL" — it
+> does). Where the older findings conflict with the **Definitive Working
+> Configuration** below, the newer section wins.
+
+---
+
+### ⭐ DEFINITIVE: ES7210 Init Order Determines Whether Mic Capture Sounds Like Audio Or Noise
+
+**Status:** AUTHORITATIVE — verified working 2026-04-30. **Treat this as the
+reference; do not regress.**
+
+**Symptom of the broken state:** Microphone capture played back through the
+speaker sounds like *bit-crushed digital noise / EM-sniffer-style aliasing /
+high-frequency garbage*. Test tone (DAC-only path) sounds perfect. The
+diagnostic shows non-zero, internally-correlated samples on the I2S RX path
+(`FD23F700`-style values), so the chip is producing *something* — but the
+something doesn't resemble the acoustic input at all. Speech is unrecognizable.
+
+#### What actually fixed it: ES7210 init order matches Espressif `esp-bsp` exactly
+
+The previous init wrote registers in this order:
+
+1. Reset
+2. **`REG01 = 0x3F` — gate all clocks**  ← *the wrapping mistake*
+3. Timing, HPF
+4. Mode config (`REG08 = 0x00`)
+5. Analog power (`REG40 = 0xC3`)
+6. Mic bias
+7. **Clock config** (`REG02/07/04/05`) — *while clocks gated*
+8. **I2S format** (`REG11/12`) — *while clocks gated*
+9. Mic gain
+10. Mic power
+11. DLL power-down (`REG06 = 0x04`)
+12. ADC + PGA power (`REG4B/4C = 0x0F`)
+13. **`REG01 = 0x00` — un-gate clocks**  ← only here did the digital domain come up
+14. Enable (`REG00 = 0x71` then `0x41`)
+
+**The bug:** The ES7210's I2S format register (`REG11`) and clock config
+(`REG02/04/05/07`) were written while the digital clock domain was gated by
+`REG01 = 0x3F`. The register *bytes* updated over I2C and read back correctly
+in our diagnostic, but **the format setting never propagated into the
+chip's internal data path** because the digital pipeline wasn't clocked. When
+clocks finally came up at step 13, the chip ran with whatever default/stale
+format state the data path happened to be in. The result was audio data that
+*looked* coherent in the I2C register dump but was *structurally wrong* on the
+I2S serial output — exactly the "EM-sniffer / bit-crushed" symptom.
+
+**The fix:** Match the Espressif `esp-bsp/components/es7210/es7210.c` order
+exactly. Critically:
+
+- **Do not write `REG01` at all** — leave clock gating at the post-reset default.
+- **Write the I2S format register (`REG11/12`) FIRST**, immediately after the
+  HPF coefficients and before any analog/clock setup.
+- **Write the clock config (`REG07` OSR, `REG02` MAINCLK, `REG04/05` LRCK) LAST**,
+  after analog power, mic bias, gain, and individual mic power are all set.
+- Do not touch `REG08` (mode config) or `REG03` (master clock select) — Espressif
+  leaves both at their reset defaults.
+
+The verified-working order, exactly mirroring `es7210_config_codec()` in
+`esp-bsp`:
+
+```
+1.  REG00 = 0xFF                     // software reset
+    REG00 = 0x32                     // exit reset to intermediate state
+2.  REG09 = 0x30, REG0A = 0x30       // power-up timing
+3.  REG23 = 0x2A, REG22 = 0x0A       // ADC1/2 HPF
+    REG21 = 0x2A, REG20 = 0x0A       // ADC3/4 HPF
+4.  REG11 = (bit_width | i2s_format) // I2S format — MUST come before clock config
+    REG12 = 0x00 (or TDM value)      // SDP interface 2
+5.  REG40 = 0xC3                     // analog power & VMID
+6.  REG41 = 0x70, REG42 = 0x70       // MIC bias (2.87V for MEMS)
+7.  REG43..46 = (gain | 0x10)        // PGA gain — 0x10 is the PGA enable bit
+8.  REG47..4A = 0x08                 // individual mic power
+9.  REG07 = 0x20                     // OSR (LAST among clock regs)
+    REG02 = 0xC3                     // MAINCLK = adc_div(3) | doubler<<6 | dll<<7
+    REG04 = 0x03, REG05 = 0x00       // LRCK divider for 16kHz from 12.288MHz
+10. REG06 = 0x04                     // power down DLL (per Espressif sequence)
+11. REG4B = 0x0F, REG4C = 0x0F       // MIC1/2 + MIC3/4 ADC + PGA power
+12. REG00 = 0x71, then REG00 = 0x41  // enable device
+```
+
+**For other sample rate / MCLK combinations**, the values for `REG02/07/04/05`
+come from the lookup table in `esp-bsp` `es7210_coeff_div[]`. Build `REG02`
+with `(adc_div) | (doubler << 6) | (dll << 7)`. The local copy of this table
+in our `es7210.cpp` had **wrong field values** for `{12.288MHz, 16kHz}`
+(`adc_div=0x01, dll=0, doubler=0, osr=0x06` instead of `adc_div=0x03, dll=1,
+doubler=1, osr=0x20`). Don't trust that table; trust the upstream Espressif
+header values.
+
+#### Things we tried first that did NOT fix the bit-crushed output
+
+These are documented so future debugging doesn't re-tour them. **None** of them
+restored intelligible audio on their own. Some may still be necessary (✅) for
+the working state; some were red herrings (❌).
+
+| Attempt | Result | Should-Keep? |
+|---|---|---|
+| Reduce software gain `* 16 → * 4` (chasing "clipping" hypothesis) | No change in quality. Real symptom was structural corruption, not amplitude clipping. | ✅ Kept at `* 4` — sane default for ambient + speech levels at 30dB PGA. |
+| Re-enable APLL (`use_apll = true` + `fixed_mclk = 12288000`) | Diagnostic showed cleaner MCLK duty cycle (1854/8146 → 4228/5772) but mic playback still garbled. | ✅ **Required.** ESP32-S3 *does* have APLL — earlier comment claiming otherwise was wrong. Without APLL the MCLK is ~0.16% off (PLL_160M / 13.02), which the DAC tolerates but the ADC's sigma-delta + decimation chain does not. |
+| Revert I2S clock pin drive strength `CAP_2 → CAP_1` | No audible improvement, but theoretically reduces EMI coupling into the adjacent analog mic traces. Also matches the previously-confirmed working state. | ✅ Kept at `CAP_1` for MCLK/BCLK/WS/DOUT. The crackling-fix commit's `CAP_2` change was unnecessary. |
+| Disable `MIC3`/`MIC4` (only enable `MIC1 \| MIC2` in `es7210_cfg.mics`) | No audible improvement on its own. | ✅ Kept. Schematic confirms MIC3/MIC4 are wired to the AEC feedback path (filtered speaker output via R37/R38/R39/R40/C75–C83), not real microphones. Enabling channels we don't read is wasteful and arguably can confuse the decimation pipeline. |
+| Increase sample rate / bit depth | Not attempted — analyzed and rejected. | ❌ Wouldn't have helped. The corruption happens at the chip's internal pipeline, before any storage truncation. No standard sample rate gives an integer MCLK divider on ESP32-S3 anyway; APLL is the only path to precision regardless of rate. |
+| Switch to ES8311 ADC for mic input | Aborted after schematic check. | ❌ **Not viable on this board.** ES8311 pins 17/18 (`MIC1N`, `MIC1P/DMIC_SDA`) are unrouted. Both onboard mics (`MIC1`, `MIC2`) connect *only* to ES7210 pins 15/16 and 19/20. The factory firmware that "sounded fine" must also have been using ES7210. |
+
+#### Definitive working configuration: full file/setting checklist
+
+If the audio path ever regresses, **verify all of these**. Any single one can
+re-introduce the bit-crushed symptom.
+
+**`firmware/platforms/esp32/audio_esp32.cpp` — I2S driver setup:**
+
+| Setting | Required value | Why |
+|---|---|---|
+| `I2S_PORT` | `I2S_NUM_0` | Single full-duplex port. (Earlier "must be `I2S_NUM_1`" finding applied to a dual-port attempt that has since been reverted.) |
+| `i2s_mode` | `I2S_MODE_MASTER \| I2S_MODE_TX \| I2S_MODE_RX` | Full-duplex; needed because ES7210 RX and ES8311 TX share BCLK/WS. |
+| `bits_per_sample` | `I2S_BITS_PER_SAMPLE_32BIT` | 32-bit DMA slots. ES7210 outputs 24-bit data left-aligned in 32-bit slots; we extract via `>> 16` to get 16-bit. |
+| `channel_format` | `I2S_CHANNEL_FMT_RIGHT_LEFT` | Standard stereo interleave. |
+| `communication_format` | `I2S_COMM_FORMAT_STAND_I2S` | Philips I2S (1-bit delay). Must match ES7210 `REG11` format=0 and ES8311 SDPIN format. |
+| `dma_buf_count` | `16` | Full-duplex needs more headroom. |
+| `dma_buf_len` | `512` | Same reason. |
+| `use_apll` | **`true`** | **Required for clean ADC.** Without APLL, MCLK is non-integer-divided from PLL_160M. DAC tolerates the error; ADC's sigma-delta does not. |
+| `fixed_mclk` | **`12288000`** | Tells APLL to lock exactly to 12.288 MHz so codec coefficient tables are valid. |
+| `tx_desc_auto_clear` | `true` | Plus an explicit `i2s_start()` after `i2s_zero_dma_buffer()` — this is what keeps BCLK/WS toggling continuously, fixing the earlier crackle issue. |
+| GPIO drive strength on MCLK/BCLK/WS/DOUT | **All `GPIO_DRIVE_CAP_1`** | Stronger drive (`CAP_2`) couples high-frequency switching noise into the differential mic traces that run nearby. |
+
+**`firmware/platforms/esp32/es7210.cpp` — chip init order:**
+
+Match the Espressif sequence exactly (see "What actually fixed it" above).
+**Do not write `REG01`, `REG03`, or `REG08` at all.** The init must end with
+`REG00 = 0x71` then `REG00 = 0x41` and **must not** wrap any of the format /
+clock / mic-power writes inside a clock-gating bracket.
+
+**`firmware/platforms/esp32/audio_esp32.cpp` — ES7210 config struct:**
+
+```cpp
+es7210_cfg.mics       = ES7210_MIC1 | ES7210_MIC2;  // not ES7210_MIC_ALL
+es7210_cfg.gain       = ES7210_GAIN_30DB;
+es7210_cfg.bits       = ES7210_BITS_32;
+es7210_cfg.i2s_format = ES7210_I2S_NORMAL;
+es7210_cfg.enable_tdm = false;
+es7210_cfg.mclk_freq  = 12288000;
+es7210_cfg.sample_rate = (es7210_sample_rate_t)16000;
+```
+
+**ES8311 init (already in `es8311_init_codec()`):**
+
+- Tri-state ES8311 SDPOUT (`REG0A` bit 6) **after** CSM stabilizes — see the
+  earlier "ES8311 SDPOUT Bus Contention on GPIO10" finding.
+- Disable ES8311 ADC blocks (`REG14/15/16/17 = 0x00`) so it doesn't drive
+  GPIO10 against the ES7210.
+- 32-bit I2S slots with 16-bit data (data in MSB) — write via
+  `(int32_t)sample << 16`.
+
+**`firmware/src/core/audio_engine.cpp` — capture path:**
+
+- Software gain `((L+R)/2) * 4`. Tunable. `* 16` clips speech, `* 1` is too
+  quiet. `* 4` keeps normal speech at –9 to –21 dBFS post-gain.
+- Mono'd into the retroactive buffer (`int16_t`, PSRAM, 10 s @ 16 kHz).
+
+#### Reference
+
+- **Espressif `esp-bsp` ES7210 driver** — the source of truth for register
+  values and init sequence: <https://raw.githubusercontent.com/espressif/esp-bsp/master/components/es7210/es7210.c>
+- **Schematic** confirms `MIC1`/`MIC2` (the two onboard MEMS mics) → ES7210
+  pins 15/16, 19/20 (analog differential, AC-coupled through `C99/C100/C103/C107`).
+  `MIC3`/`MIC4` → AEC filter network (`R37/R38/R39/R40/C75/C76/C79–C83`) →
+  ES7210 pins 27/28, 31/32. ES8311 mic pins (17/18) are unrouted on this PCB.
+
+---
+
 ### ES8311 SDPOUT Bus Contention on GPIO10
 
 **Symptom:** ES7210 mic data is all zeros. GPIO10 reads as DRIVEN LOW even with internal pull-up enabled.

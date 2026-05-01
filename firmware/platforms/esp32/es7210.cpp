@@ -104,7 +104,10 @@ static const es7210_coeff_t* es7210_find_coeff(uint32_t mclk, uint32_t rate) {
 
 // ============================================================================
 // Configure Clock
+// (currently unused — ES7210_init writes the registers directly to match the
+// Espressif esp-bsp init order; kept for reference / future runtime tuning)
 // ============================================================================
+__attribute__((unused))
 static bool es7210_config_clock(const es7210_config_t* config) {
     const es7210_coeff_t* coeff = es7210_find_coeff(config->mclk_freq, config->sample_rate);
 
@@ -214,7 +217,10 @@ static bool es7210_config_i2s(const es7210_config_t* config) {
 
 // ============================================================================
 // Configure Microphones
+// (currently unused — ES7210_init writes the registers directly to match the
+// Espressif esp-bsp init order; kept for reference / future runtime tuning)
 // ============================================================================
+__attribute__((unused))
 static bool es7210_config_mics(const es7210_config_t* config) {
     uint8_t mics = config->mics;
 
@@ -279,49 +285,45 @@ bool ES7210_init(const es7210_config_t* config) {
 
     // Store config
     current_config = *config;
+    uint8_t mics = config->mics;
 
     // ========================================================================
-    // 1) Software Reset (ESPHome reference: 0xFF then 0x32)
+    // Sequence matches Espressif esp-bsp/components/es7210/es7210.c exactly.
+    // Earlier order (clock-config-before-format, with REG01 clock-gating wrapping
+    // the whole init) caused the I2S format register to be written while the
+    // chip's digital clock domain was gated, so format settings did not propagate
+    // into the data path → garbled "EM-sniffer-style" output even though the
+    // register dump looked correct.
     // ========================================================================
-    es7210_write_reg(ES7210_RESET_REG00, 0xFF);  // Full reset
+
+    // 1) Software reset
+    es7210_write_reg(ES7210_RESET_REG00, 0xFF);
     delay(20);
-    es7210_write_reg(ES7210_RESET_REG00, 0x32);  // Exit reset to intermediate state
+    es7210_write_reg(ES7210_RESET_REG00, 0x32);
     delay(20);
 
-    // ========================================================================
-    // 2) Gate clocks initially (Espressif reference: 0x3F)
-    // ========================================================================
-    es7210_write_reg(ES7210_CLOCK_OFF_REG01, 0x3F);
-
-    // ========================================================================
-    // 3) Timing Configuration
-    // ========================================================================
+    // 2) Power-up timing
     es7210_write_reg(ES7210_TIME_CONTROL0_REG09, 0x30);
     es7210_write_reg(ES7210_TIME_CONTROL1_REG0A, 0x30);
 
-    // ========================================================================
-    // 4) High-Pass Filter (DC blocking for microphones)
-    // ========================================================================
+    // 3) ADC1-4 high-pass filter coefficients (addresses: 0x20=0x0A, 0x21=0x2A,
+    // 0x22=0x0A, 0x23=0x2A — matches Espressif esp-bsp es7210.c by ADDRESS;
+    // our header's HPF1/HPF2 naming is inverse of Espressif's, but addresses match)
     es7210_write_reg(ES7210_ADC12_HPF2_REG23, 0x2A);
     es7210_write_reg(ES7210_ADC12_HPF1_REG22, 0x0A);
-    es7210_write_reg(ES7210_ADC34_HPF2_REG20, 0x0A);
     es7210_write_reg(ES7210_ADC34_HPF1_REG21, 0x2A);
+    es7210_write_reg(ES7210_ADC34_HPF2_REG20, 0x0A);
 
-    // ========================================================================
-    // 5) Mode Configuration (slave mode)
-    // ========================================================================
-    es7210_write_reg(ES7210_MODE_CONFIG_REG08, 0x00);
+    // 4) I2S format FIRST (before clock config — required for format to latch)
+    if (!es7210_config_i2s(config)) {
+        Serial.println("ES7210: I2S config failed");
+        return false;
+    }
 
-    // ========================================================================
-    // 6) Analog Power (initial)
-    // ========================================================================
+    // 5) Analog power & VMID
     es7210_write_reg(ES7210_ANALOG_REG40, 0xC3);
-    delay(10);
 
-    // ========================================================================
-    // 7) Mic bias only (power regs need clocks active)
-    // ========================================================================
-    uint8_t mics = config->mics;
+    // 6) Mic bias (2.87 V — Espressif default for MEMS mics)
     if (mics & (ES7210_MIC1 | ES7210_MIC2)) {
         es7210_write_reg(ES7210_MIC12_BIAS_REG41, 0x70);
     }
@@ -329,54 +331,32 @@ bool ES7210_init(const es7210_config_t* config) {
         es7210_write_reg(ES7210_MIC34_BIAS_REG42, 0x70);
     }
 
-    // ========================================================================
-    // 8) Clock Configuration (ESPHome reference: write full coefficient table)
-    // Previous approach skipped clock config in slave mode per Espressif
-    // esp_codec_dev, but ESPHome's working driver writes all clock regs.
-    // Values for {12288000, 16000}: adc_div=3, dll=1, doubler=1, osr=0x20
-    // ========================================================================
-    es7210_write_reg(ES7210_MASTER_CLK_REG03, 0x00);  // Slave mode
-    es7210_write_reg(ES7210_MAINCLK_REG02, 0xC3);     // adc_div=3 | doubler | dll
-    es7210_write_reg(ES7210_OSR_REG07, 0x20);          // OSR
-    es7210_write_reg(ES7210_LRCK_DIVH_REG04, 0x03);   // LRCK divider high
-    es7210_write_reg(ES7210_LRCK_DIVL_REG05, 0x00);   // LRCK divider low
-    Serial.printf("ES7210: Clock config — REG02=0xC3 REG07=0x20 REG04=0x03 REG05=0x00\n");
-
-    // ========================================================================
-    // 9) I2S Interface Configuration (ESPHome does this before mic power)
-    // ========================================================================
-    if (!es7210_config_i2s(config)) {
-        Serial.println("ES7210: I2S config failed");
-        return false;
-    }
-
-    // ========================================================================
-    // 10) Mic gain configuration (ESPHome reference sequence)
-    // ========================================================================
+    // 7) Mic gain (PGA enable bit 0x10 OR'd in setGain)
     ES7210_setGain(config->mics, config->gain);
 
-    // ========================================================================
-    // 11) Mic power on (ESPHome: REG47-4A=0x08, then REG06=0x04, then REG4B/4C)
-    // ========================================================================
+    // 8) Mic power on (analog blocks — must come before clock config)
     es7210_write_reg(ES7210_MIC1_POWER_REG47, (mics & ES7210_MIC1) ? 0x08 : 0x00);
     es7210_write_reg(ES7210_MIC2_POWER_REG48, (mics & ES7210_MIC2) ? 0x08 : 0x00);
     es7210_write_reg(ES7210_MIC3_POWER_REG49, (mics & ES7210_MIC3) ? 0x08 : 0x00);
     es7210_write_reg(ES7210_MIC4_POWER_REG4A, (mics & ES7210_MIC4) ? 0x08 : 0x00);
 
-    // Power down DLL (ESPHome: REG06=0x04 after mic power regs)
+    // 9) Clock config LAST (after format, analog power, mics powered).
+    // For {12.288MHz MCLK, 16kHz}: adc_div=3, dll=1, doubler=1, osr=0x20
+    // REG02 = adc_div | (doubler<<6) | (dll<<7) = 0x03 | 0x40 | 0x80 = 0xC3
+    es7210_write_reg(ES7210_OSR_REG07, 0x20);
+    es7210_write_reg(ES7210_MAINCLK_REG02, 0xC3);
+    es7210_write_reg(ES7210_LRCK_DIVH_REG04, 0x03);
+    es7210_write_reg(ES7210_LRCK_DIVL_REG05, 0x00);
+    Serial.printf("ES7210: Clock config — REG02=0xC3 REG07=0x20 REG04=0x03 REG05=0x00\n");
+
+    // 10) Power down DLL (per Espressif sequence)
     es7210_write_reg(ES7210_POWER_DOWN_REG06, 0x04);
 
-    // Power on MIC bias + ADC + PGA
+    // 11) Power on MIC bias + ADC + PGA
     es7210_write_reg(ES7210_MIC12_POWER_REG4B, 0x0F);
     es7210_write_reg(ES7210_MIC34_POWER_REG4C, 0x0F);
 
-    // Un-gate all clocks before enabling device
-    es7210_write_reg(ES7210_CLOCK_OFF_REG01, 0x00);
-    delay(10);
-
-    // ========================================================================
-    // 12) Enable device (ESPHome: REG00=0x71 then 0x41)
-    // ========================================================================
+    // 12) Enable device
     es7210_write_reg(ES7210_RESET_REG00, 0x71);
     delay(10);
     es7210_write_reg(ES7210_RESET_REG00, 0x41);

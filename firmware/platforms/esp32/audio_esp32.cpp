@@ -323,13 +323,14 @@ void AudioHAL_init(void) {
 
     Serial.println("ESP32: I2S started (full-duplex master on I2S0, continuous DMA)");
 
-    // Drive strength: medium (CAP_2) for clocks to ensure clean edges at MHz
-    // frequencies, weak (CAP_1) for data to reduce ringing on slower signals.
-    // Too-weak clock drive can cause the signal to not reach valid logic
-    // thresholds, which the codecs interpret as jittery/missing edges.
-    gpio_set_drive_capability((gpio_num_t)MCLK_PIN, GPIO_DRIVE_CAP_2);
-    gpio_set_drive_capability((gpio_num_t)BCLK_PIN, GPIO_DRIVE_CAP_2);
-    gpio_set_drive_capability((gpio_num_t)WS_PIN, GPIO_DRIVE_CAP_2);
+    // Drive strength: weak (CAP_1) for ALL I2S signals. The mic differential
+    // signals (MIC1/MIC2 → ES7210) run physically next to the I2S clock traces;
+    // strong clock drive (CAP_2+) couples high-frequency switching noise into
+    // the analog mic input, which the ADC samples as "EM-sniffer-style" noise.
+    // The codecs work fine at CAP_1 — verified by FINDINGS.md (mic peaks ±1500).
+    gpio_set_drive_capability((gpio_num_t)MCLK_PIN, GPIO_DRIVE_CAP_1);
+    gpio_set_drive_capability((gpio_num_t)BCLK_PIN, GPIO_DRIVE_CAP_1);
+    gpio_set_drive_capability((gpio_num_t)WS_PIN, GPIO_DRIVE_CAP_1);
     gpio_set_drive_capability((gpio_num_t)DOUT_PIN, GPIO_DRIVE_CAP_1);
 
     delay(50);
@@ -344,7 +345,11 @@ void AudioHAL_init(void) {
     }
 
     es7210_config_t es7210_cfg = ES7210_CONFIG_DEFAULT();
-    es7210_cfg.mics = ES7210_MIC_ALL;
+    // Only MIC1 and MIC2 are real microphones on this board. MIC3/MIC4 are
+    // wired to the AEC feedback path (filtered speaker output for echo
+    // cancellation) per schematic. Enabling them isn't useful for our use
+    // case and may confuse ES7210's internal decimation pipeline.
+    es7210_cfg.mics = (es7210_mic_select_t)(ES7210_MIC1 | ES7210_MIC2);
     es7210_cfg.gain = ES7210_GAIN_30DB;
     es7210_cfg.sample_rate = (es7210_sample_rate_t)SAMPLE_RATE;
     es7210_cfg.bits = ES7210_BITS_32;
@@ -375,7 +380,7 @@ void AudioHAL_init(void) {
     audioInitialized = true;
     Serial.println("ESP32: Audio initialized successfully");
     Serial.printf("  Sample rate: %d Hz, 32-bit I2S\n", SAMPLE_RATE);
-    Serial.printf("  MCLK: %d Hz on GPIO%d (via PLL_160M)\n", MCLK_FREQ, MCLK_PIN);
+    Serial.printf("  MCLK: %d Hz on GPIO%d (via APLL)\n", MCLK_FREQ, MCLK_PIN);
     Serial.printf("  I2S0 (full-duplex): BCLK=%d, WS=%d, DOUT=%d, DIN=%d\n",
                   BCLK_PIN, WS_PIN, DOUT_PIN, DIN_PIN);
     Serial.printf("  PA_EN: GPIO%d\n", PA_EN);
