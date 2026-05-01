@@ -232,6 +232,12 @@ void AudioEngine_process() {
                 memcpy(monoLoop, monoChop, monoCount * sizeof(int16_t));
             }
 
+            if (resonatorEnabled) {
+                // Resonator processes in-place: dry/wet mix is internal to the
+                // Faust DSP (controlled by Resonator_setWetDry from setWetDry()).
+                Resonator_process(monoLoop, monoLoop, monoCount);
+            }
+
             // Replace output with loop
             for (uint32_t i = 0; i < monoCount; i++) {
                 monoOut[i] = monoLoop[i];
@@ -317,6 +323,7 @@ void AudioEngine_setWetDry(float mix) {
     if (mix < 0.0f) mix = 0.0f;
     if (mix > 1.0f) mix = 1.0f;
     wetDryMix = mix;
+    Resonator_setWetDry(mix);
 }
 
 void AudioEngine_setVolume(uint8_t vol) {
