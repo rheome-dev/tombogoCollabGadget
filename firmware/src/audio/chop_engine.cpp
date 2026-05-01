@@ -136,6 +136,9 @@ void ChopEngine_init(void) {
     state.sampleCounter = 0;
     state.pitchRate = 1.0f;
 
+    state.cycleCount = 0;
+    state.fillActive = false;
+
     // Compute the initial Euclidean pattern so the engine isn't silent the
     // first time it's enabled at the default density (otherwise setDensity()
     // early-returns when the requested value matches the init value).
@@ -146,6 +149,8 @@ void ChopEngine_init(void) {
     for (uint8_t i = 0; i < state.steps; i++) {
         state.playbackType[i] = state.pattern[i] ? randomPlaybackType() : (uint8_t)PLAY_NORMAL;
     }
+    memcpy(state.basePattern, state.pattern, state.steps);
+    memcpy(state.basePlaybackType, state.playbackType, state.steps);
 }
 
 void ChopEngine_setSlices(const SliceInfo* slices, uint8_t count) {
@@ -178,6 +183,11 @@ void ChopEngine_setDensity(float density) {
             state.playbackType[i] = PLAY_NORMAL;
         }
     }
+
+    // Sync base — fills overlay this and snap back to it.
+    memcpy(state.basePattern, state.pattern, state.steps);
+    memcpy(state.basePlaybackType, state.playbackType, state.steps);
+    state.fillActive = false;
 
     Serial.printf("ChopEngine: Density %.2f → %u pulses\n", density, pulses);
 }
@@ -214,6 +224,29 @@ void ChopEngine_process(const int16_t* input, int16_t* output,
         if (state.sampleCounter >= state.stepSamples) {
             state.sampleCounter -= state.stepSamples;
             state.currentStep = (state.currentStep + 1) % state.steps;
+
+            // Cycle wrap: every 4th rotation, overlay a temporary fill (random
+            // pattern rotation + re-rolled playback types). Otherwise restore
+            // the base pattern so the fill doesn't leak into subsequent cycles.
+            if (state.currentStep == 0) {
+                state.cycleCount++;
+                bool shouldFill = (state.cycleCount % 4 == 0);
+                if (shouldFill) {
+                    uint8_t rot = 1 + (rand() % (state.steps - 1));
+                    for (uint8_t s = 0; s < state.steps; s++) {
+                        uint8_t src = (s + rot) % state.steps;
+                        state.pattern[s] = state.basePattern[src];
+                        state.playbackType[s] = state.basePattern[src]
+                            ? randomPlaybackType()
+                            : (uint8_t)PLAY_NORMAL;
+                    }
+                    state.fillActive = true;
+                } else if (state.fillActive) {
+                    memcpy(state.pattern, state.basePattern, state.steps);
+                    memcpy(state.playbackType, state.basePlaybackType, state.steps);
+                    state.fillActive = false;
+                }
+            }
         }
 
         bool play = state.pattern[state.currentStep];
@@ -282,6 +315,9 @@ void ChopEngine_randomize(void) {
     }
     memcpy(state.pattern, newPattern, state.steps);
     memcpy(state.playbackType, newTypes, state.steps);
+    memcpy(state.basePattern, newPattern, state.steps);
+    memcpy(state.basePlaybackType, newTypes, state.steps);
+    state.fillActive = false;
     Serial.printf("ChopEngine: Pattern randomized (rot=%u)\n", rot);
 }
 

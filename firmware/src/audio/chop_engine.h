@@ -30,10 +30,20 @@ typedef struct {
     SliceInfo     slices[MAX_SLICES];
     uint8_t       numSlices;
 
-    // Euclidean pattern
+    // Euclidean pattern (currently playing — may be a temporary fill rotation)
     bool          pattern[16];      // 16-step grid
     uint8_t       playbackType[16]; // Per-step playback type
+
+    // Base pattern (what density/randomize set — fills don't touch this so
+    // the engine can snap back after a fill cycle).
+    bool          basePattern[16];
+    uint8_t       basePlaybackType[16];
+
     uint8_t       steps;             // Total pattern length (steps)
+
+    // Fill state — every 4th cycle the pattern is temporarily rotated.
+    uint16_t      cycleCount;        // increments on each pattern wrap
+    bool          fillActive;        // true if pattern currently holds a fill
 
     // Parameters
     float         density;           // 0.0-1.0 → 2-16 pulses
