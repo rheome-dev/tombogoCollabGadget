@@ -65,6 +65,7 @@ void Resonator_init(void) {
     g_dsp->fHslider2 = 0.0f;    // Dry/Wet — start dry, audio_engine ramps it
     g_dsp->fHslider1 = 1.0f;    // Output Gain
     g_dsp->fHslider0 = 0.0f;    // Reverb Mix — OFF by default
+    g_dsp->fHslider8 = 0.001f;  // Chord Glide — minimum (range 0.001..10s); near-instant chord changes
 
     Serial.printf("Resonator: initialized (FaustResonator state %u bytes, %s)\n",
                   (unsigned)sizeof(FaustResonator),

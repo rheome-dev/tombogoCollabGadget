@@ -69,11 +69,16 @@ uint8_t TouchHAL_getCount(void) {
 
     touchCount = count;
 
-    // Update stored touch points
+    // Map raw controller coords into LVGL's logical frame.
+    // LVGL is configured with LV_DISP_ROT_270 (sw_rotate), and 8.x does NOT
+    // auto-rotate input devices — the read callback must do it. For a square
+    // 466x466 panel rotated 270° CW the inverse mapping is:
+    //   xL = (W - 1) - yT
+    //   yL = xT
     for (uint8_t i = 0; i < 5; i++) {
         if (i < count) {
-            touchPoints[i].x = y[i];
-            touchPoints[i].y = (int16_t)(screenWidth - 1) - x[i];
+            touchPoints[i].x = (int16_t)(screenWidth - 1) - y[i];
+            touchPoints[i].y = x[i];
             touchPoints[i].pressed = true;
         } else {
             touchPoints[i].pressed = false;
