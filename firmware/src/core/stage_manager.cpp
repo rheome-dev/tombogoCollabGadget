@@ -12,7 +12,9 @@
 #include "bpm_clock.h"
 #include "../audio/chop_engine.h"
 #include "../audio/transient_detector.h"
+#include "../audio/dsp/resonator.h"
 #include "../input/mcp_input.h"
+#include "../ui/resonate_view.h"
 #include <Arduino.h>
 
 // ─── State ──────────────────────────────────────────────────────────────────
@@ -46,6 +48,24 @@ static uint8_t masterVolume = 80;
 // whatever density the user dialed in.
 static bool chopDensityNeedsRandomize = false;
 
+// Chord change quantization: touch handler writes to pendingChord, the BPM
+// onSixteenth callback applies it on every 8th boundary (sub % 2 == 0).
+// Volatile because it crosses thread boundaries (Core 0 touch → Core 1 audio).
+static volatile int8_t pendingChord = -1;
+static uint8_t currentChord = 0;
+
+static void onSixteenthQuantizeChord(uint8_t bar, uint8_t beat, uint8_t sub) {
+    (void)bar; (void)beat;
+    if (pendingChord < 0) return;
+    if (sub % 2 != 0) return;   // only fire on 8th-note boundaries
+    uint8_t idx = (uint8_t)pendingChord;
+    pendingChord = -1;
+    Resonator_setChord(idx);
+    currentChord = idx;
+    // Note: ResonateView is in Core 0 LVGL space; the audio task should not
+    // touch LVGL widgets directly. The view polls currentChord via update().
+}
+
 // ─── Stage Transitions ──────────────────────────────────────────────────────
 
 static void enterStage(Stage stage) {
@@ -67,9 +87,11 @@ static void enterStage(Stage stage) {
             pitchSemitones = 0;
             chopDensity = 0.5f;
             wetDryMix = 0.0f;
+            ResonateView_hide();
             break;
 
         case STAGE_CAPTURE_REVIEW:
+            ResonateView_hide();
             // Only re-capture and reset playback when arriving fresh from IDLE.
             // Navigating back from CHOP/RESONATE keeps the existing loop playing
             // uninterrupted — re-triggering capture here would freeze a silent
@@ -85,6 +107,7 @@ static void enterStage(Stage stage) {
             break;
 
         case STAGE_CHOP: {
+            ResonateView_hide();
             const int16_t* captured = RetroactiveBuffer_getCaptured();
             uint32_t capturedLen = RetroactiveBuffer_getCapturedLength();
 
@@ -133,6 +156,8 @@ static void enterStage(Stage stage) {
             resonatorEnabled = true;
             AudioEngine_setResonatorEnabled(true);
             AudioEngine_setWetDry(wetDryMix);
+            ResonateView_show();
+            ResonateView_setActiveChord(currentChord);
             break;
 
         case STAGE_COUNT:
@@ -256,7 +281,15 @@ void StageManager_init(void) {
     currentStage = STAGE_IDLE;
     previousStage = STAGE_IDLE;
     stageEnterMs = millis();
+    pendingChord = -1;
+    currentChord = 0;
+    BPMClock_onSixteenth(onSixteenthQuantizeChord);
     Serial.println("StageManager: Initialized at IDLE");
+}
+
+void StageManager_requestChord(uint8_t chordIdx) {
+    if (chordIdx > 15) return;
+    pendingChord = (int8_t)chordIdx;
 }
 
 Stage StageManager_current(void) {
@@ -318,7 +351,12 @@ void StageManager_handleInput(const InputMsg* msg) {
 }
 
 void StageManager_update(void) {
-    // Per-tick updates (UI animation, etc.) — driven by UIManager
+    // The chord change is applied from the audio task (Core 1) on 8th-note
+    // boundaries. LVGL widgets must be touched only from the UI thread, so
+    // here on the UI tick we mirror the latest applied chord into the view.
+    if (currentStage == STAGE_RESONATE) {
+        ResonateView_setActiveChord(currentChord);
+    }
 }
 
 void StageManager_goto(Stage stage) {

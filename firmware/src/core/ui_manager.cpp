@@ -10,6 +10,7 @@
 #include "lvgl_driver.h"
 #include "../../hal/display_hal.h"
 #include "../../hal/touch_hal.h"
+#include "../ui/resonate_view.h"
 #include <Arduino.h>
 #include <lvgl.h>
 
@@ -72,6 +73,9 @@ void UIManager_init() {
     // Create the UI
     create_ui();
 
+    // Build per-stage views (start hidden, shown on stage entry)
+    ResonateView_create();
+
     // Initialize tick timer
     lastTickTime = millis();
 
@@ -110,6 +114,10 @@ void UIManager_update() {
         }
         lv_obj_set_style_text_color(stageLabel, lv_color_hex(color), LV_PART_MAIN);
     }
+
+    // Mirror audio-task-applied chord into the LVGL view (LVGL must be
+    // touched only from this UI thread, not the audio task).
+    StageManager_update();
 
     // Run LVGL task handler (processes drawing, animations, input)
     LVGL_driver_task();

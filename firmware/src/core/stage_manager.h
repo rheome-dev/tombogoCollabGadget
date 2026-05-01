@@ -57,4 +57,10 @@ void StageManager_update(void);
  */
 void StageManager_goto(Stage stage);
 
+/**
+ * Request a chord change (called from touch UI). The change is queued and
+ * applied at the next 8th-note boundary by the BPM clock callback.
+ */
+void StageManager_requestChord(uint8_t chordIdx);
+
 #endif // STAGE_MANAGER_H
