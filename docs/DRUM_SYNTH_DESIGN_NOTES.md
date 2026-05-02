@@ -38,6 +38,15 @@ Drum capture is a control-event loop (not audio), so it costs nothing in CPU or 
 - Multiple kits selectable via web config (#17) or in-stage encoder gesture
 - Source samples typically 44.1 kHz; resampled to 32 kHz at load time (offline, no runtime cost)
 
+### Reuse of the `SampleSource` abstraction (#28)
+The drum engine MUST reuse the `SampleSource` interface introduced for the BREAK stage in #28 rather than rolling its own sample-loading path. Concretely:
+- Each loaded drum hit is a `DiskSampleSource` instance
+- Slice points for a multi-hit kit file (if used) read through the same offline `.slices` sidecar pattern
+- The on-disk WAV + `.slices` schema is shared between BREAK and DRUMS so there is one sample format, one loader, one analyzer
+- Voices in the drum engine each hold a `SampleSource*` pointer; voice stealing replaces the pointer
+
+This avoids duplicating sample I/O code, ensures the web config app's sample library management (#17) covers both stages, and makes it possible later for drums and BREAK to share kit assets transparently.
+
 ### CPU budget at 32 kHz
 8 voices of sample playback + ADSR envelope: ~5 % of one Core 1 core. Very light.
 
